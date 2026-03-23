@@ -137,6 +137,37 @@ ftnote "Root cause likely sits in retry path"
 ftsnap
 ```
 
+## Low-friction hook mode
+
+If you want lighter capture without typing `fixtape run` every time, FixTape can also install shell hooks.
+
+PowerShell:
+
+```powershell
+Invoke-Expression (& fixtape shell-init powershell --mode all)
+ftenable
+```
+
+Bash:
+
+```bash
+eval "$(fixtape shell-init bash --mode all)"
+ftenable
+```
+
+What hook mode captures:
+- command line
+- exit code
+- current working directory
+
+What it does not capture:
+- stdout/stderr output files
+- exact subprocess timing
+- reproducible command marking
+
+Use `fixtape run` when you want full-fidelity capture.
+Use hook mode when you want lower-friction session memory.
+
 ## Example session flow
 
 ```powershell
@@ -207,7 +238,7 @@ Already included:
 - GitHub Actions CI
 
 Planned next:
-- shell integration for passive capture
+- lower-friction shell hook capture improvements
 - richer trace parsing
 - search across old sessions
 - IDE integration

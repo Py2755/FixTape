@@ -51,6 +51,12 @@ def build_parser() -> argparse.ArgumentParser:
 
     shell_parser = subparsers.add_parser("shell-init", help="Print shell helper functions for faster FixTape usage.")
     shell_parser.add_argument("shell", choices=["powershell", "pwsh", "bash", "zsh", "sh"], help="Shell type.")
+    shell_parser.add_argument(
+        "--mode",
+        choices=["helpers", "hooks", "all"],
+        default="all",
+        help="Choose whether to print helper wrappers, command hooks, or both.",
+    )
 
     subparsers.add_parser("status", help="Show active session status.")
 
@@ -73,6 +79,12 @@ def build_parser() -> argparse.ArgumentParser:
 
     export_parser = subparsers.add_parser("export", help="Zip the active session to a destination file.")
     export_parser.add_argument("destination", help="Destination zip path.")
+
+    record_parser = subparsers.add_parser("record-shell-command", help=argparse.SUPPRESS)
+    record_parser.add_argument("--command", required=True, dest="command_text", help=argparse.SUPPRESS)
+    record_parser.add_argument("--exit-code", required=True, type=int, help=argparse.SUPPRESS)
+    record_parser.add_argument("--shell", default="unknown", help=argparse.SUPPRESS)
+    record_parser.add_argument("--cwd", default=None, help=argparse.SUPPRESS)
 
     return parser
 
@@ -138,7 +150,34 @@ def handle_search(store: SessionStore, args: argparse.Namespace) -> int:
 
 
 def handle_shell_init(store: SessionStore, args: argparse.Namespace) -> int:
-    _print(render_shell_init(args.shell))
+    _print(render_shell_init(args.shell, mode=args.mode))
+    return 0
+
+
+def handle_record_shell_command(store: SessionStore, args: argparse.Namespace) -> int:
+    try:
+        store.load_session()
+    except NoActiveSessionError:
+        return 0
+
+    store.add_command_event(
+        {
+            "type": "command_ran",
+            "timestamp": iso_now(),
+            "duration_ms": None,
+            "repro": False,
+            "command": args.command_text,
+            "args": None,
+            "exit_code": args.exit_code,
+            "stdout_file": None,
+            "stderr_file": None,
+            "stdout_sha256": None,
+            "stderr_sha256": None,
+            "captured_via": "shell_hook",
+            "shell": args.shell,
+            "cwd": args.cwd,
+        }
+    )
     return 0
 
 
@@ -247,6 +286,7 @@ def main(argv: list[str] | None = None) -> int:
         "show": handle_show,
         "search": handle_search,
         "shell-init": handle_shell_init,
+        "record-shell-command": handle_record_shell_command,
         "status": handle_status,
         "note": handle_note,
         "run": handle_run,

@@ -2,6 +2,16 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.1.2] - 2026-03-23
+
+### Added
+- Low-friction shell hook capture mode via `fixtape shell-init --mode all`.
+- Hidden shell hook recording path for command line, exit code, and working directory capture.
+- Summary output now shows whether a command was captured by `fixtape run` or by a shell hook.
+
+### Improved
+- Quickstart and README now document when to use full capture versus hook-based capture.
+
 ## [0.1.1] - 2026-03-23
 
 ### Added

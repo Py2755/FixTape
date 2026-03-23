@@ -61,8 +61,9 @@ def generate_summary(
     lines.append("## Command Timeline")
     if commands:
         for command in commands:
+            capture_source = command.get("captured_via") or "fixtape_run"
             lines.append(
-                f"- `{command['timestamp']}` exit={command['exit_code']} repro={command['repro']} `{command['command']}`"
+                f"- `{command['timestamp']}` exit={command['exit_code']} repro={command['repro']} via={capture_source} `{command['command']}`"
             )
     else:
         lines.append("- No commands captured.")

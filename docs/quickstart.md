@@ -19,6 +19,18 @@ This gives you:
 - `ftsnap` for snapshots
 - `ftshow` and `ftsearch` for revisiting sessions
 
+## Optional shell hooks
+
+If you want lower-friction capture, enable hooks:
+
+```powershell
+Invoke-Expression (& fixtape shell-init powershell --mode all)
+ftenable
+```
+
+Hook mode captures command line, exit code, and working directory for ordinary shell commands.
+For full stdout/stderr capture, keep using `fixtape run`.
+
 ## Run a full session
 
 ```powershell

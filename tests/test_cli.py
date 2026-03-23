@@ -104,3 +104,27 @@ class FixTapeCliTests(unittest.TestCase):
         self.assertEqual(code, 0)
         self.assertIn("function ft", out)
         self.assertIn("function ftr", out)
+        self.assertIn("function ftenable", out)
+
+    def test_record_shell_command_is_searchable(self) -> None:
+        code, _, _ = self.run_cli(["start", "hooked bug"])
+        self.assertEqual(code, 0)
+
+        code, _, _ = self.run_cli(
+            [
+                "record-shell-command",
+                "--command",
+                "pytest tests/test_billing.py -k duplicate",
+                "--exit-code",
+                "1",
+                "--shell",
+                "powershell",
+                "--cwd",
+                str(self.workspace),
+            ]
+        )
+        self.assertEqual(code, 0)
+
+        code, out, _ = self.run_cli(["search", "duplicate", "--field", "commands"])
+        self.assertEqual(code, 0)
+        self.assertIn("hooked bug", out)
