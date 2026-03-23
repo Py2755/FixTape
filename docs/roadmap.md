@@ -1,19 +1,19 @@
 # Roadmap
 
-## v0.2.0
+## Next
 
-- Shell integration beyond generated helpers.
-- Better search filters and output formatting.
-- Smarter summary rendering with key evidence extraction.
-- Easier export and handoff workflows.
+- Import shell history from tools such as `atuin` and `zsh-histdb`.
+- Add git-aware suggestion scoring using branch names, dirty files, and changed-file overlap.
+- Improve when suggestions choose `start` versus `kickoff`.
 
-## v0.3.0
+## Upcoming
 
-- Deeper IDE integration beyond the first VS Code session view.
-- Regression-test draft generation from captured evidence.
+- Deeper IDE integration beyond the current VS Code session view.
+- Better team knowledge export for playbooks, recipes, and incident families.
+- Stronger suggestion formatting and shell UX.
 
 ## Longer term
 
-- Team handoff bundles.
-- AI-assisted summarization and cluster search.
+- Team-oriented handoff and knowledge bundles.
+- AI-assisted summarization and cluster search on top of the local memory layer.
 - Incident-oriented workflows for backend and platform teams.

@@ -14,10 +14,10 @@
   <text x="58" y="272" fill="#93C5FD" font-family="Consolas, 'Courier New', monospace" font-size="26">$ fixtape note "Provider retries same external id after timeout"</text>
   <text x="90" y="312" fill="#D1FAE5" font-family="Consolas, 'Courier New', monospace" font-size="24">Note captured.</text>
 
-  <text x="58" y="382" fill="#93C5FD" font-family="Consolas, 'Courier New', monospace" font-size="26">$ fixtape run pytest tests/test_billing.py -k duplicate</text>
+  <text x="58" y="382" fill="#93C5FD" font-family="Consolas, 'Courier New', monospace" font-size="26">$ fixtape capture pytest tests/test_billing.py -k duplicate</text>
   <text x="90" y="422" fill="#D1FAE5" font-family="Consolas, 'Courier New', monospace" font-size="24">Command captured with exit code 1.</text>
 
-  <text x="58" y="492" fill="#93C5FD" font-family="Consolas, 'Courier New', monospace" font-size="26">$ fixtape run --repro python scripts/replay_invoice.py failing_invoice.json</text>
+  <text x="58" y="492" fill="#93C5FD" font-family="Consolas, 'Courier New', monospace" font-size="26">$ fixtape capture --repro python scripts/replay_invoice.py failing_invoice.json</text>
   <text x="90" y="532" fill="#D1FAE5" font-family="Consolas, 'Courier New', monospace" font-size="24">Command captured with exit code 0.</text>
 
   <text x="58" y="602" fill="#93C5FD" font-family="Consolas, 'Courier New', monospace" font-size="26">$ fixtape finish --verdict fixed --summary "retry path now checks idempotency key"</text>

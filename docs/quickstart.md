@@ -13,23 +13,31 @@ Invoke-Expression (& fixtape shell-init powershell)
 ```
 
 This gives you:
-- `ft` for `fixtape run -- ...`
-- `ftr` for `fixtape run --repro -- ...`
+- `ft` for `fixtape capture -- ...`
+- `ftr` for `fixtape capture --repro -- ...`
 - `ftnote` for notes
 - `ftsnap` for snapshots
 - `ftshow` and `ftsearch` for revisiting sessions
+- `ftdoctor` and `ftsuggest` for flight-recorder guidance
 
 ## Optional shell hooks
 
-If you want lower-friction capture, enable hooks:
+If you want zero-touch pre-session capture, enable hooks:
 
 ```powershell
 Invoke-Expression (& fixtape shell-init powershell --mode all)
 ftenable
 ```
 
-Hook mode captures command line, exit code, and working directory for ordinary shell commands.
-For full stdout/stderr capture, keep using `fixtape run`.
+Hooks now keep a rolling flight recorder even before a session exists.
+For full stdout/stderr capture, use `fixtape capture`.
+
+You can inspect the buffer and get a start recommendation with:
+
+```powershell
+fixtape doctor --window 40m
+fixtape suggest-start --window 20m
+```
 
 ## Search old debugging work
 
@@ -47,9 +55,9 @@ The local cross-session index is stored in `.fixtape/session-index.json`.
 ## Run a full session
 
 ```powershell
-fixtape start "duplicate invoice on retry" --tag incident --tag billing
+fixtape start "duplicate invoice on retry" --tag incident --tag billing --include-last 40m
 fixtape note "Reproduces only when retry header is present"
-fixtape run pytest tests/test_billing.py -k duplicate
+fixtape capture pytest tests/test_billing.py -k duplicate
 fixtape attach trace traceback.txt
 fixtape attach payload failing_invoice.json
 fixtape snapshot
@@ -57,8 +65,8 @@ fixtape snapshot
 # apply the fix
 
 fixtape note "Idempotency key was ignored in retry path"
-fixtape run --repro python scripts/replay_invoice.py failing_invoice.json
-fixtape finish --verdict fixed --summary "Retry path now uses idempotency key" --ref ticket:PAY-123 --ref commit:abc123
+fixtape capture --repro python scripts/replay_invoice.py failing_invoice.json
+fixtape finish --verdict fixed --summary "Retry path now uses idempotency key" --ref ticket:PAY-123 --ref commit:abc123 --include-last 20m
 ```
 
 ## Inspect the result
@@ -67,6 +75,8 @@ fixtape finish --verdict fixed --summary "Retry path now uses idempotency key" -
 fixtape list
 fixtape show
 fixtape search idempotency
+fixtape doctor --window 40m
+fixtape suggest-start --window 20m
 fixtape export .\fixtape-session.zip
 ```
 
@@ -89,6 +99,9 @@ Parsed failure signals are extracted from attached traces and captured command o
 
 ```text
 .fixtape/
+  flight-recorder/
+    buffer.jsonl
+    outputs/
   sessions/
     <session-id>/
       session.json

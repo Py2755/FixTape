@@ -9,15 +9,15 @@ An engineer is debugging a retry-related billing bug that causes duplicate invoi
 ## Commands
 
 ```powershell
-fixtape start "duplicate invoice on retry" --tag incident --tag billing
+fixtape start "duplicate invoice on retry" --tag incident --tag billing --include-last 40m
 fixtape note "Issue shows up only when provider retries with same external id"
-fixtape run pytest tests/test_billing.py -k duplicate
+fixtape capture pytest tests/test_billing.py -k duplicate
 fixtape attach payload failing_invoice.json
 fixtape attach trace traceback.txt
 fixtape snapshot
 fixtape note "Likely missing idempotency check on retry path"
-fixtape run --repro python scripts/replay_invoice.py failing_invoice.json
-fixtape finish --verdict fixed --summary "Retry flow now checks idempotency key before write"
+fixtape capture --repro python scripts/replay_invoice.py failing_invoice.json
+fixtape finish --verdict fixed --summary "Retry flow now checks idempotency key before write" --include-last 20m
 fixtape show
 ```
 
@@ -28,4 +28,5 @@ The engineer ends the session with:
 - the exact commands that mattered,
 - attached evidence,
 - Git context around the fix,
-- and a regression test TODO that can be turned into a real test next.
+- a regression test TODO that can be turned into a real test next,
+- and enough flight-recorder context to recover from a late session start.

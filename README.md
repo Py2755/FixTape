@@ -385,7 +385,7 @@ If FixTape runs inside a Git repository, it stores data at the repository root. 
 
 ## Project status
 
-FixTape is currently an early but working MVP.
+FixTape is currently an early but already feature-rich public alpha.
 
 Already included:
 - runnable CLI
@@ -400,12 +400,11 @@ Already included:
 - GitHub Actions CI
 
 Planned next:
-- lower-friction shell hook capture improvements
-- richer trace parsing
-- search across old sessions
-- IDE integration
-- AI-assisted summarization
-- regression-test draft generation from evidence
+- shell history imports such as `atuin` / `zsh-histdb`
+- git-aware suggestion scoring with branch and changed-file context
+- richer IDE actions on top of the current VS Code extension
+- stronger team knowledge export and playbook sharing
+- AI-assisted summarization once the local debugging memory layer is fully mature
 
 ## Development
 
