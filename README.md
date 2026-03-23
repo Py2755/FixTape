@@ -113,6 +113,8 @@ fixtape search retry
 fixtape export .\fixtape-session.zip
 ```
 
+`fixtape search` now ranks stronger matches above weaker ones and shows compact field-labeled snippets, so title and summary hits naturally rise above low-signal substring matches.
+
 ## Optional shell helpers
 
 FixTape can print shell helpers so you can use short wrappers during debugging sessions.

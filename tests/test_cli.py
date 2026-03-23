@@ -128,3 +128,22 @@ class FixTapeCliTests(unittest.TestCase):
         code, out, _ = self.run_cli(["search", "duplicate", "--field", "commands"])
         self.assertEqual(code, 0)
         self.assertIn("hooked bug", out)
+
+    def test_search_ranks_title_above_note_match(self) -> None:
+        code, _, _ = self.run_cli(["start", "payment retry idempotency"])
+        self.assertEqual(code, 0)
+        code, _, _ = self.run_cli(["finish", "--verdict", "fixed", "--summary", "done"])
+        self.assertEqual(code, 0)
+
+        code, _, _ = self.run_cli(["start", "other billing issue"])
+        self.assertEqual(code, 0)
+        code, _, _ = self.run_cli(["note", "Observed retry idempotency problem during manual test"])
+        self.assertEqual(code, 0)
+        code, _, _ = self.run_cli(["finish", "--verdict", "fixed", "--summary", "done"])
+        self.assertEqual(code, 0)
+
+        code, out, _ = self.run_cli(["search", "retry idempotency"])
+        self.assertEqual(code, 0)
+        lines = [line for line in out.splitlines() if line and not line.startswith("  ")]
+        self.assertGreaterEqual(len(lines), 2)
+        self.assertIn("payment retry idempotency", lines[0])

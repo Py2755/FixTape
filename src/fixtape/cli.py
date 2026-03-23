@@ -143,7 +143,9 @@ def handle_search(store: SessionStore, args: argparse.Namespace) -> int:
     for match in matches:
         session = match["session"]
         fields = ", ".join(match["hit_fields"])
-        _print(f"{session['id']} | {session.get('verdict') or 'active'} | {fields} | {session['title']}")
+        _print(
+            f"{session['id']} | score={match['score']} | {session.get('verdict') or 'active'} | {fields} | {session['title']}"
+        )
         for snippet in match["snippets"]:
             _print(f"  {snippet}")
     return 0

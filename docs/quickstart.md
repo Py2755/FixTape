@@ -31,6 +31,15 @@ ftenable
 Hook mode captures command line, exit code, and working directory for ordinary shell commands.
 For full stdout/stderr capture, keep using `fixtape run`.
 
+## Search old debugging work
+
+```powershell
+fixtape search "retry idempotency"
+fixtape search "pytest duplicate" --field commands
+```
+
+Search results are ranked, and the CLI prints compact snippets with the field that matched.
+
 ## Run a full session
 
 ```powershell

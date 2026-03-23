@@ -2,6 +2,15 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.1.3] - 2026-03-23
+
+### Added
+- Ranked session search with weighted field scoring.
+- Compact field-labeled snippets in `fixtape search` output.
+
+### Improved
+- Search now prefers stronger matches such as title and summary over weaker low-signal matches.
+
 ## [0.1.2] - 2026-03-23
 
 ### Added

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import platform
+import re
 import zipfile
 from pathlib import Path
 from typing import Any
@@ -220,6 +221,7 @@ class SessionStore:
         if not needle:
             return []
         active_fields = fields or {"title", "summary", "notes", "commands", "artifacts"}
+        query_terms = [term for term in re.split(r"\s+", needle) if term]
 
         matches: list[dict[str, Any]] = []
         for session in self.list_sessions(limit=10_000):
@@ -228,34 +230,47 @@ class SessionStore:
 
             hit_fields: list[str] = []
             snippets: list[str] = []
+            score = 0
 
             title = str(session.get("title") or "")
             summary = str(session.get("final_summary") or "")
-            if "title" in active_fields and needle in title.lower():
-                hit_fields.append("title")
-                snippets.append(title)
-            if "summary" in active_fields and summary and needle in summary.lower():
-                hit_fields.append("summary")
-                snippets.append(summary)
+            if "title" in active_fields:
+                field_score = self._score_text_match(title, needle, query_terms, base_weight=80)
+                if field_score:
+                    hit_fields.append("title")
+                    snippets.append(self._make_snippet("title", title, needle))
+                    score += field_score
+            if "summary" in active_fields and summary:
+                field_score = self._score_text_match(summary, needle, query_terms, base_weight=60)
+                if field_score:
+                    hit_fields.append("summary")
+                    snippets.append(self._make_snippet("summary", summary, needle))
+                    score += field_score
 
             for event in events:
                 if event["type"] == "note_added" and "notes" in active_fields:
                     text = str(event.get("text") or "")
-                    if needle in text.lower():
+                    field_score = self._score_text_match(text, needle, query_terms, base_weight=35)
+                    if field_score:
                         hit_fields.append("note")
-                        snippets.append(text)
+                        snippets.append(self._make_snippet("note", text, needle))
+                        score += field_score
                 elif event["type"] == "command_ran" and "commands" in active_fields:
                     command = str(event.get("command") or "")
-                    if needle in command.lower():
+                    field_score = self._score_text_match(command, needle, query_terms, base_weight=25)
+                    if field_score:
                         hit_fields.append("command")
-                        snippets.append(command)
+                        snippets.append(self._make_snippet("command", command, needle))
+                        score += field_score
                 elif event["type"] == "artifact_attached" and "artifacts" in active_fields:
                     source_path = str(event.get("source_path") or "")
-                    if needle in source_path.lower():
+                    field_score = self._score_text_match(source_path, needle, query_terms, base_weight=15)
+                    if field_score:
                         hit_fields.append("artifact")
-                        snippets.append(source_path)
+                        snippets.append(self._make_snippet("artifact", source_path, needle))
+                        score += field_score
 
-            if hit_fields:
+            if hit_fields and score > 0:
                 unique_fields = list(dict.fromkeys(hit_fields))
                 unique_snippets = list(dict.fromkeys(snippets))
                 matches.append(
@@ -263,8 +278,62 @@ class SessionStore:
                         "session": session,
                         "hit_fields": unique_fields,
                         "snippets": unique_snippets[:3],
+                        "score": score,
                     }
                 )
 
-        matches.sort(key=lambda item: item["session"].get("created_at", ""), reverse=True)
+        matches.sort(key=lambda item: (item["score"], item["session"].get("created_at", "")), reverse=True)
         return matches[:limit]
+
+    def _score_text_match(self, text: str, needle: str, query_terms: list[str], base_weight: int) -> int:
+        haystack = text.lower()
+        if needle not in haystack and not any(term in haystack for term in query_terms):
+            return 0
+
+        score = 0
+        if needle in haystack:
+            score += base_weight
+            if haystack == needle:
+                score += 80
+            elif haystack.startswith(needle):
+                score += 35
+            elif re.search(rf"\b{re.escape(needle)}\b", haystack):
+                score += 25
+
+        matched_terms = 0
+        for term in query_terms:
+            if term in haystack:
+                matched_terms += 1
+                score += 8
+                if re.search(rf"\b{re.escape(term)}\b", haystack):
+                    score += 4
+
+        if query_terms and matched_terms == len(query_terms):
+            score += 12
+
+        return score
+
+    def _make_snippet(self, label: str, text: str, needle: str, radius: int = 42) -> str:
+        lowered = text.lower()
+        index = lowered.find(needle)
+        if index == -1:
+            for term in [part for part in needle.split() if part]:
+                index = lowered.find(term)
+                if index != -1:
+                    needle = term
+                    break
+
+        if index == -1:
+            compact = " ".join(text.split())
+            compact = compact[: (radius * 2)]
+            return f"[{label}] {compact}"
+
+        start = max(0, index - radius)
+        end = min(len(text), index + len(needle) + radius)
+        snippet = text[start:end].strip()
+        snippet = " ".join(snippet.split())
+        if start > 0:
+            snippet = f"...{snippet}"
+        if end < len(text):
+            snippet = f"{snippet}..."
+        return f"[{label}] {snippet}"
