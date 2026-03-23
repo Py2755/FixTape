@@ -24,6 +24,7 @@ def generate_summary(
     output_path: Path,
     session: dict[str, Any],
     events: list[dict[str, Any]],
+    parsed_artifacts: dict[str, Any] | None = None,
 ) -> None:
     notes = [event for event in events if event["type"] == "note_added"]
     commands = [event for event in events if event["type"] == "command_ran"]
@@ -92,6 +93,14 @@ def generate_summary(
             )
     else:
         lines.append("- No snapshots captured.")
+    lines.append("")
+
+    lines.append("## Parsed Failure Signals")
+    if parsed_artifacts and parsed_artifacts.get("top_signals"):
+        for signal in parsed_artifacts["top_signals"]:
+            lines.append(f"- {signal}")
+    else:
+        lines.append("- No parsed failure signals detected.")
     lines.append("")
 
     lines.append("## Suggested Follow-Up")

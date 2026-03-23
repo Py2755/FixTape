@@ -10,7 +10,6 @@
 ## v0.3.0
 
 - Deeper IDE integration beyond the first VS Code session view.
-- Better stack trace and artifact parsing.
 - Regression-test draft generation from captured evidence.
 
 ## Longer term

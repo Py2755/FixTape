@@ -2,6 +2,15 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.1.8] - 2026-03-24
+
+### Added
+- Parsed artifact and stack trace extraction.
+- `generated/parsed-artifacts.json` with extracted failure signals.
+
+### Improved
+- Summaries and handoff docs now surface parsed failure signals from traces, logs, and command outputs.
+
 ## [0.1.7] - 2026-03-24
 
 ### Added

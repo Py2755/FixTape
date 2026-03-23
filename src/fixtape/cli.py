@@ -6,6 +6,7 @@ import time
 from pathlib import Path
 
 from fixtape.artifacts import copy_artifact
+from fixtape.artifact_parser import build_parsed_artifacts
 from fixtape.generators.repro import generate_repro_script
 from fixtape.generators.summary import generate_summary
 from fixtape.generators.todo import build_regression_draft, generate_regression_todo
@@ -271,12 +272,14 @@ def handle_snapshot(store: SessionStore, args: argparse.Namespace) -> int:
 def handle_finish(store: SessionStore, args: argparse.Namespace) -> int:
     session, session_dir, events = store.finalize_session(args.verdict, args.summary, args.refs)
     generated_dir = session_dir / "generated"
-    generate_summary(generated_dir / "debug-summary.md", session, events)
+    parsed_artifacts = build_parsed_artifacts(events)
+    write_json(generated_dir / "parsed-artifacts.json", parsed_artifacts)
+    generate_summary(generated_dir / "debug-summary.md", session, events, parsed_artifacts=parsed_artifacts)
     script_name = "repro.ps1" if sys.platform.startswith("win") else "repro.sh"
     generate_repro_script(generated_dir / script_name, events)
     generate_regression_todo(generated_dir / "regression-test.todo.md", session, events)
     write_json(generated_dir / "regression-draft.json", build_regression_draft(session, events))
-    generate_handoff(generated_dir / "handoff.md", session, events)
+    generate_handoff(generated_dir / "handoff.md", session, events, parsed_artifacts=parsed_artifacts)
     write_json(generated_dir / "timeline.json", events)
     _print(f"Session finished: {session_dir.name}")
     _print(f"Generated summary: {generated_dir / 'debug-summary.md'}")

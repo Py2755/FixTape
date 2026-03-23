@@ -78,8 +78,10 @@ The exported archive now starts with handoff-first files:
 The finished session also includes:
 - `generated/regression-test.todo.md`
 - `generated/regression-draft.json`
+- `generated/parsed-artifacts.json`
 
 These files use the captured notes, repro commands, refs, and payload-like artifacts to draft the next regression test step.
+Parsed failure signals are extracted from attached traces and captured command outputs when FixTape can detect them.
 
 ## What gets created
 

@@ -46,6 +46,14 @@ class FixTapeCliTests(unittest.TestCase):
     def test_basic_session_flow(self) -> None:
         input_file = self.workspace / "payload.json"
         input_file.write_text('{"ok": true}\n', encoding="utf-8")
+        trace_file = self.workspace / "traceback.txt"
+        trace_file.write_text(
+            "Traceback (most recent call last):\n"
+            "  File \"app.py\", line 10, in <module>\n"
+            "    raise ValueError('boom')\n"
+            "ValueError: boom\n",
+            encoding="utf-8",
+        )
 
         code, out, _ = self.run_cli(["start", "demo bug"])
         self.assertEqual(code, 0)
@@ -58,6 +66,8 @@ class FixTapeCliTests(unittest.TestCase):
         self.assertEqual(code, 0)
 
         code, _, _ = self.run_cli(["attach", "payload", str(input_file)])
+        self.assertEqual(code, 0)
+        code, _, _ = self.run_cli(["attach", "trace", str(trace_file)])
         self.assertEqual(code, 0)
 
         code, _, _ = self.run_cli(
@@ -115,10 +125,13 @@ class FixTapeCliTests(unittest.TestCase):
         self.assertTrue((generated / "debug-summary.md").exists())
         self.assertTrue((generated / "regression-test.todo.md").exists())
         self.assertTrue((generated / "regression-draft.json").exists())
+        self.assertTrue((generated / "parsed-artifacts.json").exists())
         self.assertTrue((generated / "handoff.md").exists())
         draft = json.loads((generated / "regression-draft.json").read_text(encoding="utf-8"))
+        parsed = json.loads((generated / "parsed-artifacts.json").read_text(encoding="utf-8"))
         self.assertEqual(draft["suggested_test_name"], "test_demo_bug")
         self.assertIn("ticket:PAY-123", draft["refs"])
+        self.assertGreaterEqual(parsed["signal_count"], 1)
 
     def test_status_requires_active_session(self) -> None:
         code, _, err = self.run_cli(["status"])

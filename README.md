@@ -52,6 +52,7 @@ That makes it useful for:
 At the end of a debugging session, FixTape can generate:
 - `generated/handoff.md`
 - `generated/debug-summary.md`
+- `generated/parsed-artifacts.json`
 - `generated/repro.ps1` or `generated/repro.sh`
 - `generated/regression-test.todo.md`
 - `generated/regression-draft.json`
@@ -133,6 +134,11 @@ FixTape also drafts regression-test inputs from captured evidence:
 - likely fixture files from payload/config artifacts
 - refs linked during `finish`
 - candidate assertions inferred from the debugging trail
+
+FixTape now also parses failure signals from attached traces and captured command outputs:
+- Python tracebacks
+- common Node/JavaScript stack traces
+- generic high-signal error lines from stderr and log-like artifacts
 
 ## Optional shell helpers
 
