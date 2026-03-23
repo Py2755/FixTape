@@ -83,6 +83,8 @@ Current commands:
 - `fixtape lenses`
 - `fixtape regressions`
 - `fixtape outcomes`
+- `fixtape playbooks`
+- `fixtape recipes`
 - `fixtape search <query>`
 - `fixtape reindex`
 - `fixtape shell-init <powershell|bash|zsh|sh>`
@@ -133,6 +135,8 @@ fixtape hotspots --kind file
 fixtape lenses
 fixtape regressions
 fixtape outcomes
+fixtape playbooks
+fixtape recipes
 fixtape search retry
 fixtape link ticket PAY-123
 fixtape export .\fixtape-session.zip
@@ -162,6 +166,10 @@ FixTape now also writes a compact session digest on finish:
 FixTape now also keeps higher-level engineering memory:
 - `fixtape regressions` shows recurring regression-test opportunities across repeated failure classes
 - `fixtape outcomes` shows what kinds of failures the team actually fixes, hands off, or leaves under-specified
+
+FixTape can now also emit repeatable guidance from history:
+- `fixtape playbooks` surfaces common first moves, artifacts, and entry points for repeated failure families
+- `fixtape recipes` turns repeated failure buckets into concrete “if you see this, start here” workflows
 
 Refs can now be linked directly after or during a session:
 

@@ -76,6 +76,12 @@ def build_parser() -> argparse.ArgumentParser:
     outcomes_parser = subparsers.add_parser("outcomes", help="Show fix outcome analytics across session history.")
     outcomes_parser.add_argument("--limit", type=int, default=6, help="Maximum number of family rows to show.")
 
+    playbooks_parser = subparsers.add_parser("playbooks", help="Show repeatable troubleshooting playbooks across session history.")
+    playbooks_parser.add_argument("--limit", type=int, default=5, help="Maximum number of playbooks to show.")
+
+    recipes_parser = subparsers.add_parser("recipes", help="Show concrete fix recipes for repeated failure buckets.")
+    recipes_parser.add_argument("--limit", type=int, default=5, help="Maximum number of recipes to show.")
+
     search_parser = subparsers.add_parser("search", help="Search across recent FixTape sessions.")
     search_parser.add_argument("query", help="Text query to search for.")
     search_parser.add_argument("--limit", type=int, default=10, help="Maximum number of matches to show.")
@@ -354,6 +360,45 @@ def handle_outcomes(store: SessionStore, args: argparse.Namespace) -> int:
     return 0
 
 
+def handle_playbooks(store: SessionStore, args: argparse.Namespace) -> int:
+    playbooks = store.playbooks(limit=max(1, args.limit))
+    if not playbooks:
+        _print("No repeatable playbooks detected yet.")
+        return 0
+    for item in playbooks:
+        _print(f"{item['label']} | {item['count']} sessions | open={item['open_count']}")
+        _print(f"  start: {item['starter_step']}")
+        _print(f"  entry: {item['entry_point']}")
+        if item["artifacts"]:
+            _print(f"  artifacts: {', '.join(item['artifacts'])}")
+        if item["areas"]:
+            _print(f"  areas: {', '.join(item['areas'])}")
+        if item["refs"]:
+            _print(f"  refs: {', '.join(item['refs'])}")
+        if item["examples"]:
+            _print(f"  examples: {', '.join(item['examples'])}")
+    return 0
+
+
+def handle_recipes(store: SessionStore, args: argparse.Namespace) -> int:
+    recipes = store.fix_recipes(limit=max(1, args.limit))
+    if not recipes:
+        _print("No repeated fix recipes detected yet.")
+        return 0
+    for item in recipes:
+        _print(f"{item['count']} sessions | {item['label']}")
+        _print(f"  trigger: {item['trigger']}")
+        _print(f"  area: {item['area']}")
+        _print(f"  entry: {item['entry_point']}")
+        _print(f"  repro: {item['repro_command']}")
+        _print(f"  next: {item['next_step']}")
+        if item["artifact_kinds"]:
+            _print(f"  capture: {', '.join(item['artifact_kinds'])}")
+        if item["examples"]:
+            _print(f"  examples: {', '.join(item['examples'])}")
+    return 0
+
+
 def handle_search(store: SessionStore, args: argparse.Namespace) -> int:
     fields = set(args.field) if args.field else None
     matches = store.search_sessions(args.query, fields=fields, limit=max(1, args.limit))
@@ -553,6 +598,8 @@ def main(argv: list[str] | None = None) -> int:
         "lenses": handle_lenses,
         "regressions": handle_regressions,
         "outcomes": handle_outcomes,
+        "playbooks": handle_playbooks,
+        "recipes": handle_recipes,
         "search": handle_search,
         "shell-init": handle_shell_init,
         "record-shell-command": handle_record_shell_command,

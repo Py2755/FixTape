@@ -2,6 +2,16 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.1.15] - 2026-03-24
+
+### Added
+- `fixtape playbooks` for repeatable troubleshooting playbooks across recurring failure families.
+- `fixtape recipes` for concrete fix recipes around repeated failure buckets and repro paths.
+
+### Improved
+- Session history now turns repeated incidents into reusable starter steps, artifact checklists, and stable entry points.
+- Regression and digest history now feed practical guidance, not just analytics.
+
 ## [0.1.14] - 2026-03-24
 
 ### Added

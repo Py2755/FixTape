@@ -451,3 +451,45 @@ class FixTapeCliTests(unittest.TestCase):
         self.assertIn("Totals:", out)
         self.assertIn("python_exception", out)
         self.assertIn("fixed=", out)
+
+    def test_playbooks_and_recipes_surface_repeatable_guidance(self) -> None:
+        trace_one = self.workspace / "recipe-one.txt"
+        trace_two = self.workspace / "recipe-two.txt"
+        for path in (trace_one, trace_two):
+            path.write_text(
+                "Traceback (most recent call last):\n"
+                "  File \"checkout.py\", line 31, in charge\n"
+                "    raise RuntimeError('idempotency missed')\n"
+                "RuntimeError: idempotency missed\n",
+                encoding="utf-8",
+            )
+
+        code, _, _ = self.run_cli(["start", "checkout recipe alpha"])
+        self.assertEqual(code, 0)
+        code, _, _ = self.run_cli(["attach", "trace", str(trace_one)])
+        self.assertEqual(code, 0)
+        code, _, _ = self.run_cli(["run", "--repro", "python", "-c", "print('recipe repro')"])
+        self.assertEqual(code, 0)
+        code, _, _ = self.run_cli(["finish", "--verdict", "handoff", "--summary", "idempotency missed on checkout retry"])
+        self.assertEqual(code, 0)
+
+        code, _, _ = self.run_cli(["start", "checkout recipe beta"])
+        self.assertEqual(code, 0)
+        code, _, _ = self.run_cli(["attach", "trace", str(trace_two)])
+        self.assertEqual(code, 0)
+        code, _, _ = self.run_cli(["run", "--repro", "python", "-c", "print('recipe repro')"])
+        self.assertEqual(code, 0)
+        code, _, _ = self.run_cli(["finish", "--verdict", "needs-more-data", "--summary", "idempotency missed on checkout retry"])
+        self.assertEqual(code, 0)
+
+        code, out, _ = self.run_cli(["playbooks"])
+        self.assertEqual(code, 0)
+        self.assertIn("python_exception", out)
+        self.assertIn("checkout.py", out)
+        self.assertIn("artifacts:", out)
+
+        code, out, _ = self.run_cli(["recipes"])
+        self.assertEqual(code, 0)
+        self.assertIn("RuntimeError: idempotency missed", out)
+        self.assertIn("recipe repro", out)
+        self.assertIn("checkout recipe", out)

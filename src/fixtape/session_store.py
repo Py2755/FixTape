@@ -869,6 +869,155 @@ class SessionStore:
             "families": families[:limit],
         }
 
+    def playbooks(self, limit: int = 5) -> list[dict[str, Any]]:
+        sessions = self._load_indexed_sessions()
+        if not sessions:
+            self.reindex_sessions()
+            sessions = self._load_indexed_sessions()
+
+        buckets: dict[str, dict[str, Any]] = {}
+        for session in sessions:
+            families = list(dict.fromkeys(str(item) for item in (session.get("signal_families") or []) if str(item).strip()))
+            if not families:
+                families = ["unknown"]
+            for family in families:
+                bucket = buckets.setdefault(
+                    family,
+                    {
+                        "label": family,
+                        "count": 0,
+                        "open_count": 0,
+                        "steps": {},
+                        "artifacts": {},
+                        "entry_points": {},
+                        "areas": {},
+                        "refs": {},
+                        "examples": [],
+                    },
+                )
+                bucket["count"] += 1
+                verdict = str(session.get("verdict") or "active")
+                if verdict in {"handoff", "unresolved", "needs-more-data", "active"}:
+                    bucket["open_count"] += 1
+                next_step = str(session.get("digest_next_step") or "").strip()
+                if next_step:
+                    bucket["steps"][next_step] = bucket["steps"].get(next_step, 0) + 1
+                entry_point = str(session.get("regression_entry_point") or "").strip()
+                if entry_point:
+                    bucket["entry_points"][entry_point] = bucket["entry_points"].get(entry_point, 0) + 1
+                for artifact_kind in session.get("artifact_kinds") or []:
+                    normalized = str(artifact_kind).strip()
+                    if normalized:
+                        bucket["artifacts"][normalized] = bucket["artifacts"].get(normalized, 0) + 1
+                area = str(session.get("digest_likely_area") or "").strip()
+                if area:
+                    bucket["areas"][area] = bucket["areas"].get(area, 0) + 1
+                for ref in session.get("refs") or []:
+                    normalized_ref = str(ref).strip()
+                    if normalized_ref:
+                        bucket["refs"][normalized_ref] = bucket["refs"].get(normalized_ref, 0) + 1
+                title = str(session.get("title") or "")
+                if title and title not in bucket["examples"]:
+                    bucket["examples"].append(title)
+
+        playbooks = []
+        for bucket in buckets.values():
+            if bucket["count"] < 2:
+                continue
+            playbooks.append(
+                {
+                    "label": bucket["label"],
+                    "count": bucket["count"],
+                    "open_count": bucket["open_count"],
+                    "starter_step": self._top_bucket_value(bucket["steps"]) or "Capture the next smallest verified fact.",
+                    "entry_point": self._top_bucket_value(bucket["entry_points"]) or "No stable entry point recorded.",
+                    "artifacts": self._top_bucket_values(bucket["artifacts"], 4),
+                    "areas": self._top_bucket_values(bucket["areas"], 4),
+                    "refs": self._top_bucket_values(bucket["refs"], 3),
+                    "examples": bucket["examples"][:3],
+                }
+            )
+
+        playbooks.sort(key=lambda item: (item["count"], item["open_count"], item["label"]), reverse=True)
+        return playbooks[:limit]
+
+    def fix_recipes(self, limit: int = 5) -> list[dict[str, Any]]:
+        sessions = self._load_indexed_sessions()
+        if not sessions:
+            self.reindex_sessions()
+            sessions = self._load_indexed_sessions()
+
+        buckets: dict[str, dict[str, Any]] = {}
+        for session in sessions:
+            key = self._regression_bucket_key(session)
+            if not key:
+                continue
+            bucket = buckets.setdefault(
+                key,
+                {
+                    "label": key,
+                    "count": 0,
+                    "signals": {},
+                    "exceptions": {},
+                    "areas": {},
+                    "entry_points": {},
+                    "repro_commands": {},
+                    "artifact_kinds": {},
+                    "next_steps": {},
+                    "examples": [],
+                },
+            )
+            bucket["count"] += 1
+            for signal in session.get("signal_headlines") or []:
+                normalized = str(signal).strip()
+                if normalized:
+                    bucket["signals"][normalized] = bucket["signals"].get(normalized, 0) + 1
+            for exception_type in session.get("signal_exception_types") or []:
+                normalized = str(exception_type).strip()
+                if normalized:
+                    bucket["exceptions"][normalized] = bucket["exceptions"].get(normalized, 0) + 1
+            area = str(session.get("digest_likely_area") or "").strip()
+            if area:
+                bucket["areas"][area] = bucket["areas"].get(area, 0) + 1
+            entry_point = str(session.get("regression_entry_point") or "").strip()
+            if entry_point:
+                bucket["entry_points"][entry_point] = bucket["entry_points"].get(entry_point, 0) + 1
+            for command in session.get("regression_repro_commands") or []:
+                normalized = str(command).strip()
+                if normalized:
+                    bucket["repro_commands"][normalized] = bucket["repro_commands"].get(normalized, 0) + 1
+            for artifact_kind in session.get("artifact_kinds") or []:
+                normalized = str(artifact_kind).strip()
+                if normalized:
+                    bucket["artifact_kinds"][normalized] = bucket["artifact_kinds"].get(normalized, 0) + 1
+            next_step = str(session.get("digest_next_step") or "").strip()
+            if next_step:
+                bucket["next_steps"][next_step] = bucket["next_steps"].get(next_step, 0) + 1
+            title = str(session.get("title") or "")
+            if title and title not in bucket["examples"]:
+                bucket["examples"].append(title)
+
+        recipes = []
+        for bucket in buckets.values():
+            if bucket["count"] < 2:
+                continue
+            recipes.append(
+                {
+                    "label": bucket["label"],
+                    "count": bucket["count"],
+                    "trigger": self._top_bucket_value(bucket["signals"]) or self._top_bucket_value(bucket["exceptions"]) or bucket["label"],
+                    "area": self._top_bucket_value(bucket["areas"]) or "unknown",
+                    "entry_point": self._top_bucket_value(bucket["entry_points"]) or "No stable entry point recorded.",
+                    "repro_command": self._top_bucket_value(bucket["repro_commands"]) or "No repro command marked.",
+                    "artifact_kinds": self._top_bucket_values(bucket["artifact_kinds"], 4),
+                    "next_step": self._top_bucket_value(bucket["next_steps"]) or "Capture the next smallest verified fact.",
+                    "examples": bucket["examples"][:3],
+                }
+            )
+
+        recipes.sort(key=lambda item: (item["count"], item["label"]), reverse=True)
+        return recipes[:limit]
+
     def reindex_sessions(self) -> int:
         entries: list[dict[str, Any]] = []
         for session_file in self.sessions_dir.glob("*/session.json"):
