@@ -2,6 +2,14 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.2.2] - 2026-03-24
+
+### Improved
+- `fixtape suggest-start` now scores recent failures by incident type instead of relying mostly on generic burst detection.
+- Runtime, HTTP, SQL, test, and infra-style failures now compete with different weights, so specific incident classes beat generic `process_failure`.
+- Historical family playbooks, hotspots, and outcome rates now boost suggestion confidence and can switch the recommendation from `start` to `kickoff`.
+- `fixtape doctor` now shows the same enriched, type-aware start recommendation as `fixtape suggest-start`.
+
 ## [0.2.1] - 2026-03-24
 
 ### Added

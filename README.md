@@ -190,6 +190,7 @@ FixTape now also has a zero-touch flight recorder:
 - shell hooks can keep buffering the last commands even before a session exists
 - `fixtape doctor` shows what is currently buffered
 - `fixtape suggest-start` detects likely incident onset from failure bursts and traceback signals
+- `fixtape suggest-start` now scores suggestions by incident type, not just by generic fail volume
 - `--include-last 40m` can promote buffered command history into `start`, `kickoff`, `promote`, or `finish`
 - `fixtape capture` records full stdout/stderr into the buffer even outside an active session
 
@@ -297,6 +298,13 @@ fixtape start "billing retry storm" --include-last 40m
 
 That gives you the low-friction "black box" path first, then turns the last part of the investigation into a proper FixTape session once you decide the incident matters.
 If the last commands look like a real investigation, shell hooks can also print a one-line suggestion automatically instead of forcing a hard auto-start.
+
+The suggestion layer is now type-aware:
+- test failures prefer `test regression`
+- Python/Node/Java tracebacks prefer runtime incident types
+- HTTP 5xx bursts prefer API failure suggestions
+- SQL signals prefer database failure suggestions
+- and repeated historical families can upgrade the recommendation from plain `start` to `kickoff`
 
 ## Example session flow
 

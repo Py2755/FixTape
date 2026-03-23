@@ -1,5 +1,9 @@
 # Change Log
 
+## 0.2.2
+
+- Aligned extension version metadata with the type-aware suggestion scoring release.
+
 ## 0.2.1
 
 - Aligned extension version metadata with the incident-start suggestion release.

@@ -283,12 +283,15 @@ class SessionStore:
         mark_seen: bool = False,
     ) -> dict[str, Any] | None:
         try:
-            return self.recorder.suggest_session_start(
+            suggestion = self.recorder.suggest_session_start(
                 window=window,
                 cooldown=cooldown,
                 active_session=self.pointer_path.exists(),
                 mark_seen=mark_seen,
             )
+            if not suggestion:
+                return None
+            return self._enrich_session_start_suggestion(suggestion)
         except ValueError as exc:
             raise FixTapeError(str(exc)) from exc
 
@@ -1538,3 +1541,74 @@ class SessionStore:
             return items[0] if items else None
         scored.sort(key=lambda pair: pair[0], reverse=True)
         return scored[0][1]
+
+    def _enrich_session_start_suggestion(self, suggestion: dict[str, Any]) -> dict[str, Any]:
+        query = str(suggestion.get("query") or "").strip()
+        families = [str(item) for item in suggestion.get("families") or [] if str(item).strip()]
+        triage_payload = self.triage(query, limit=3) if query else None
+        matching_playbook = None
+        if families:
+            playbooks = self.playbooks(limit=8)
+            matching_playbook = next((item for item in playbooks if item.get("label") in families), None)
+        if not matching_playbook and triage_payload:
+            matching_playbook = triage_payload.get("playbook")
+
+        matching_hotspot = None
+        if families:
+            hotspots = self.hotspots(limit=12, kind="family")
+            matching_hotspot = next((item for item in hotspots if item.get("label") in families), None)
+        if not matching_hotspot and triage_payload:
+            matching_hotspot = triage_payload.get("hotspot")
+
+        matching_family_outcome = None
+        if families:
+            analytics = self.outcome_analytics(limit=20)
+            matching_family_outcome = next((item for item in analytics["families"] if item.get("label") in families), None)
+
+        historical_score = 0
+        historical_reasons: list[str] = []
+        if matching_playbook:
+            historical_score += min(int(matching_playbook.get("count") or 0) * 6, 24)
+            historical_reasons.append(
+                f"history has {matching_playbook.get('count')} session(s) in playbook {matching_playbook.get('label')}"
+            )
+        if matching_hotspot:
+            historical_score += min(int(matching_hotspot.get("count") or 0) * 4, 16)
+            historical_reasons.append(
+                f"recurring hotspot {matching_hotspot.get('label')} appeared in {matching_hotspot.get('count')} session(s)"
+            )
+        if matching_family_outcome:
+            fixed_rate = int(matching_family_outcome.get("fixed_rate") or 0)
+            historical_score += max(0, round(fixed_rate / 10))
+            historical_reasons.append(
+                f"family {matching_family_outcome.get('label')} has historical fixed rate {fixed_rate}%"
+            )
+
+        suggestion["score"] = int(suggestion.get("score") or 0) + historical_score
+        suggestion["confidence"] = "high" if suggestion["score"] >= 85 else ("medium" if suggestion["score"] >= 55 else "low")
+        suggestion["historical_score"] = historical_score
+        suggestion["historical_reasons"] = historical_reasons
+        suggestion["playbook"] = matching_playbook
+        suggestion["hotspot"] = matching_hotspot
+        suggestion["family_outcome"] = matching_family_outcome
+        suggestion["recommended_mode"] = "kickoff" if triage_payload and historical_score >= 12 else "start"
+        suggestion["recommended_command"] = suggestion["command_kickoff"] if suggestion["recommended_mode"] == "kickoff" else suggestion["command_start"]
+        suggestion["recommended_first_move"] = (
+            triage_payload.get("starter_step")
+            if triage_payload and triage_payload.get("starter_step")
+            else (matching_playbook.get("starter_step") if matching_playbook else None)
+        )
+        suggestion["entry_point"] = (
+            triage_payload.get("entry_point")
+            if triage_payload and triage_payload.get("entry_point")
+            else (matching_playbook.get("entry_point") if matching_playbook else None)
+        )
+        suggestion["capture_first"] = (
+            triage_payload.get("artifact_kinds")
+            if triage_payload and triage_payload.get("artifact_kinds")
+            else (matching_playbook.get("artifacts") if matching_playbook else [])
+        )
+        suggestion["history_matches"] = triage_payload.get("sessions") if triage_payload else []
+        if historical_reasons:
+            suggestion["reasons"].extend(historical_reasons)
+        return suggestion

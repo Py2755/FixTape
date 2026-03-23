@@ -7,6 +7,7 @@ import re
 from pathlib import Path
 from typing import Any
 
+from fixtape.artifact_parser import build_parsed_artifacts
 from fixtape.config import (
     flight_recorder_buffer_path,
     flight_recorder_outputs_root,
@@ -31,6 +32,28 @@ DEFAULT_MAX_BYTES = 48 * 1024 * 1024
 PREVIEW_LIMIT = 240
 DEFAULT_SUGGEST_WINDOW = "20m"
 DEFAULT_SUGGEST_COOLDOWN = "15m"
+FAMILY_BASE_SCORES = {
+    "test_failure": 28,
+    "http_failure": 28,
+    "sql_failure": 28,
+    "python_exception": 26,
+    "node_exception": 26,
+    "java_exception": 26,
+    "infra_cli_failure": 18,
+    "process_failure": 8,
+    "generic_failure": 6,
+}
+TYPE_LABELS = {
+    "test_failure": "test regression",
+    "http_failure": "HTTP/API failure",
+    "sql_failure": "database failure",
+    "python_exception": "Python runtime exception",
+    "node_exception": "Node runtime exception",
+    "java_exception": "Java runtime exception",
+    "infra_cli_failure": "infra/ops command failure",
+    "process_failure": "process failure",
+    "generic_failure": "generic failure",
+}
 
 
 class PreSessionRecorder:
@@ -154,8 +177,8 @@ class PreSessionRecorder:
         if not failing:
             return None
 
+        profile = self._build_incident_profile(failing)
         repeated_fail = self._repeated_fail_bucket(failing)
-        trace_signals = [entry for entry in failing if self._has_trace_signal(entry)]
         recent_fail_span_minutes = self._fail_span_minutes(failing)
         score = 0
         reasons: list[str] = []
@@ -171,17 +194,22 @@ class PreSessionRecorder:
         if repeated_fail:
             score += 20
             reasons.append(f"repeated target: {repeated_fail}")
-        if trace_signals:
-            score += 35
-            reasons.append("traceback or exception signal detected")
+        if profile["signal_count"] > 0:
+            score += 18
+            reasons.append(f"parsed {profile['signal_count']} high-signal artifact(s)")
+        score += int(profile["type_score"])
+        if profile["incident_type"]:
+            reasons.append(f"incident type: {profile['incident_type_label']}")
+        if profile["top_signal"]:
+            reasons.append(f"top signal: {profile['top_signal']}")
         if int(entries[-1].get("exit_code") or 0) != 0:
             score += 10
 
         if score < 45:
             return None
 
-        query = self._build_query(failing, trace_signals, repeated_fail)
-        title = self._build_title(query, repeated_fail)
+        query = self._build_query(failing, profile, repeated_fail)
+        title = self._build_title(query, repeated_fail, profile)
         signature = hashlib.sha256(
             "|".join(str(entry.get("pre_session_id") or "") for entry in failing[-4:]).encode("utf-8")
         ).hexdigest()
@@ -193,6 +221,14 @@ class PreSessionRecorder:
             "include_last": window,
             "reason": reasons[0] if reasons else "recent non-zero failure activity",
             "reasons": reasons,
+            "incident_type": profile["incident_type"],
+            "incident_type_label": profile["incident_type_label"],
+            "families": profile["families"],
+            "exception_types": profile["exception_types"],
+            "status_codes": profile["status_codes"],
+            "file_hints": profile["file_hints"],
+            "top_signal": profile["top_signal"],
+            "type_score": profile["type_score"],
             "command_start": f'fixtape start "{title}" --include-last {window}',
             "command_kickoff": f'fixtape kickoff "{title}" --query "{query}" --include-last {window}',
             "signature": signature,
@@ -277,6 +313,58 @@ class PreSessionRecorder:
         ]
         return any(token in combined for token in patterns)
 
+    def _build_incident_profile(self, failing: list[dict[str, Any]]) -> dict[str, Any]:
+        parsed = build_parsed_artifacts(failing)
+        families = [str(item) for item in parsed.get("families") or [] if str(item).strip()]
+        exception_types = [str(item) for item in parsed.get("exception_types") or [] if str(item).strip()]
+        status_codes = [int(item) for item in parsed.get("status_codes") or []]
+        file_hints = [str(item) for item in parsed.get("file_hints") or [] if str(item).strip()]
+        top_signals = [str(item) for item in parsed.get("top_signals") or [] if str(item).strip()]
+        family_scores: dict[str, int] = {}
+        for family in families:
+            family_scores[family] = family_scores.get(family, 0) + FAMILY_BASE_SCORES.get(family, 14)
+        for status_code in status_codes:
+            family_scores["http_failure"] = family_scores.get("http_failure", 0) + (22 if status_code >= 500 else 14)
+        if self._looks_like_test_failure(failing):
+            family_scores["test_failure"] = family_scores.get("test_failure", 0) + 24
+        if self._looks_like_infra_failure(failing):
+            family_scores["infra_cli_failure"] = family_scores.get("infra_cli_failure", 0) + 18
+        if "process_failure" in family_scores and any(
+            key in family_scores for key in ("test_failure", "http_failure", "sql_failure", "python_exception", "node_exception", "java_exception")
+        ):
+            family_scores["process_failure"] = min(family_scores["process_failure"], 6)
+        if not family_scores and any(self._has_trace_signal(entry) for entry in failing):
+            family_scores["generic_failure"] = 18
+        if not family_scores and any(int(entry.get("exit_code") or 0) != 0 for entry in failing):
+            family_scores["process_failure"] = 12
+
+        incident_type = None
+        type_score = 0
+        if family_scores:
+            incident_type, type_score = sorted(family_scores.items(), key=lambda item: (item[1], item[0]), reverse=True)[0]
+
+        return {
+            "incident_type": incident_type or "generic_failure",
+            "incident_type_label": TYPE_LABELS.get(incident_type or "generic_failure", "generic failure"),
+            "type_score": type_score,
+            "families": list(dict.fromkeys(families))[:4],
+            "exception_types": list(dict.fromkeys(exception_types))[:4],
+            "status_codes": list(dict.fromkeys(status_codes))[:4],
+            "file_hints": list(dict.fromkeys(file_hints))[:4],
+            "top_signal": top_signals[0] if top_signals else None,
+            "signal_count": int(parsed.get("signal_count") or 0),
+        }
+
+    def _looks_like_test_failure(self, failing: list[dict[str, Any]]) -> bool:
+        commands = " ".join(str(entry.get("command") or "").lower() for entry in failing)
+        markers = ["pytest", "unittest", "jest", "vitest", "mocha", "rspec", "go test", "cargo test", "npm test"]
+        return any(marker in commands for marker in markers)
+
+    def _looks_like_infra_failure(self, failing: list[dict[str, Any]]) -> bool:
+        commands = " ".join(str(entry.get("command") or "").lower() for entry in failing)
+        markers = ["docker", "kubectl", "helm", "terraform", "ansible", "systemctl", "journalctl", "ssh "]
+        return any(marker in commands for marker in markers)
+
     def _repeated_fail_bucket(self, failing: list[dict[str, Any]]) -> str | None:
         buckets: dict[str, int] = {}
         for entry in failing:
@@ -313,13 +401,17 @@ class PreSessionRecorder:
         delta_seconds = max((max(datetimes) - min(datetimes)).total_seconds(), 0)
         return max(1, round(delta_seconds / 60))
 
-    def _build_query(self, failing: list[dict[str, Any]], trace_signals: list[dict[str, Any]], repeated_fail: str | None) -> str:
-        if trace_signals:
-            for entry in reversed(trace_signals):
-                snippet = str(entry.get("stderr_preview") or entry.get("stdout_preview") or "").strip()
-                if snippet:
-                    compact = " ".join(snippet.split())
-                    return compact[:120]
+    def _build_query(self, failing: list[dict[str, Any]], profile: dict[str, Any], repeated_fail: str | None) -> str:
+        if profile.get("top_signal"):
+            return str(profile["top_signal"])[:120]
+        if profile.get("exception_types"):
+            exception = str(profile["exception_types"][0])
+            file_hint = str((profile.get("file_hints") or [None])[0] or "").strip()
+            if file_hint:
+                return f"{exception} {file_hint}"[:120]
+            return exception[:120]
+        if profile.get("status_codes"):
+            return f"HTTP {profile['status_codes'][0]} failure"[:120]
         last_command = str(failing[-1].get("command") or "").strip()
         if repeated_fail and last_command:
             return f"{repeated_fail} {last_command}"[:120]
@@ -327,7 +419,8 @@ class PreSessionRecorder:
             return last_command[:120]
         return "recent failure burst"
 
-    def _build_title(self, query: str, repeated_fail: str | None) -> str:
+    def _build_title(self, query: str, repeated_fail: str | None, profile: dict[str, Any]) -> str:
+        prefix = str(profile.get("incident_type") or "").replace("_", " ").strip()
         base = repeated_fail or query
         tokens = re.findall(r"[a-z0-9_.-]+", base.lower())
         filtered = [
@@ -337,7 +430,9 @@ class PreSessionRecorder:
         ]
         if not filtered:
             filtered = ["incident"]
-        return " ".join(filtered[:4])
+        label_tokens = re.findall(r"[a-z0-9_.-]+", prefix.lower())
+        merged = list(dict.fromkeys([*label_tokens[:2], *filtered]))
+        return " ".join(merged[:5])
 
     def _is_suppressed(self, signature: str, cooldown: str) -> bool:
         state = read_json(self.suggestion_state_path, default={}) or {}

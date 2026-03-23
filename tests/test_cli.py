@@ -258,12 +258,15 @@ class FixTapeCliTests(unittest.TestCase):
         code, out, _ = self.run_cli(["suggest-start", "--window", "20m", "--cooldown", "15m"])
         self.assertEqual(code, 0)
         self.assertIn("Suggested FixTape session start:", out)
+        self.assertIn("Incident type: Python runtime exception", out)
+        self.assertIn("Recommended mode: start", out)
         self.assertIn("Kickoff:", out)
         self.assertIn("--include-last 20m", out)
 
         code, out, _ = self.run_cli(["doctor", "--window", "20m"])
         self.assertEqual(code, 0)
         self.assertIn("Suggestion:", out)
+        self.assertIn("incident type: Python runtime exception", out)
         self.assertIn("kickoff:", out.lower())
 
     def test_shell_notify_suppresses_duplicate_start_suggestions(self) -> None:
@@ -288,11 +291,58 @@ class FixTapeCliTests(unittest.TestCase):
 
         code, out, _ = self.run_cli(["suggest-start", "--shell-notify", "--window", "20m", "--cooldown", "15m"])
         self.assertEqual(code, 0)
-        self.assertIn("FixTape: recent failure burst detected.", out)
+        self.assertIn("FixTape: test regression detected.", out)
 
         code, out, _ = self.run_cli(["suggest-start", "--shell-notify", "--window", "20m", "--cooldown", "15m"])
         self.assertEqual(code, 0)
         self.assertEqual(out.strip(), "")
+
+    def test_suggest_start_uses_incident_type_history_for_kickoff(self) -> None:
+        for title in ("gateway outage alpha", "gateway outage beta"):
+            log_path = self.workspace / f"{title.replace(' ', '-')}.log"
+            log_path.write_text(
+                "POST /api/payments failed with HTTP 503 Service Unavailable\n"
+                "TypeError: gateway exploded\n"
+                "    at charge (gateway.js:14:2)\n",
+                encoding="utf-8",
+            )
+            code, _, _ = self.run_cli(["start", title])
+            self.assertEqual(code, 0)
+            code, _, _ = self.run_cli(["attach", "log", str(log_path)])
+            self.assertEqual(code, 0)
+            code, _, _ = self.run_cli(["finish", "--verdict", "fixed", "--summary", "gateway stabilized"])
+            self.assertEqual(code, 0)
+
+        code, _, _ = self.run_cli(
+            [
+                "capture",
+                sys.executable,
+                "-c",
+                "import sys; print('POST /api/payments failed with HTTP 503 Service Unavailable', file=sys.stderr); sys.exit(1)",
+            ]
+        )
+        self.assertEqual(code, 1)
+        code, _, _ = self.run_cli(
+            [
+                "record-shell-command",
+                "--command",
+                "curl -f https://api.example.test/payments",
+                "--exit-code",
+                "22",
+                "--shell",
+                "powershell",
+                "--cwd",
+                str(self.workspace),
+            ]
+        )
+        self.assertEqual(code, 0)
+
+        code, out, _ = self.run_cli(["suggest-start", "--window", "20m"])
+        self.assertEqual(code, 0)
+        self.assertIn("Incident type: HTTP/API failure", out)
+        self.assertIn("Playbook: http_failure", out)
+        self.assertIn("Recommended mode: kickoff", out)
+        self.assertIn("Capture first:", out)
 
     def test_reindex_rebuilds_cross_session_index(self) -> None:
         code, _, _ = self.run_cli(["start", "index me"])
