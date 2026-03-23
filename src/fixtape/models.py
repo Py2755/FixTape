@@ -29,6 +29,7 @@ class SessionRecord:
     shell: str
     platform: str
     tags: list[str] = field(default_factory=list)
+    refs: list[str] = field(default_factory=list)
     repo_root: str | None = None
     finished_at: str | None = None
     verdict: str | None = None

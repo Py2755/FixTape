@@ -54,7 +54,7 @@ fixtape snapshot
 
 fixtape note "Idempotency key was ignored in retry path"
 fixtape run --repro python scripts/replay_invoice.py failing_invoice.json
-fixtape finish --verdict fixed --summary "Retry path now uses idempotency key"
+fixtape finish --verdict fixed --summary "Retry path now uses idempotency key" --ref ticket:PAY-123 --ref commit:abc123
 ```
 
 ## Inspect the result
@@ -65,6 +65,13 @@ fixtape show
 fixtape search idempotency
 fixtape export .\fixtape-session.zip
 ```
+
+The exported archive now starts with handoff-first files:
+- `HANDOFF.md`
+- `SUMMARY.md`
+- `REPRO_SCRIPT`
+- `REGRESSION_TEST_TODO.md`
+- `metadata.json`
 
 ## What gets created
 

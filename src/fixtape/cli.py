@@ -9,6 +9,7 @@ from fixtape.artifacts import copy_artifact
 from fixtape.generators.repro import generate_repro_script
 from fixtape.generators.summary import generate_summary
 from fixtape.generators.todo import generate_regression_todo
+from fixtape.generators.handoff import generate_handoff
 from fixtape.runner import run_command
 from fixtape.shell_integration import render_shell_init
 from fixtape.session_store import (
@@ -76,6 +77,7 @@ def build_parser() -> argparse.ArgumentParser:
     finish_parser = subparsers.add_parser("finish", help="Finish the active session and generate outputs.")
     finish_parser.add_argument("--verdict", required=True, choices=sorted(VALID_VERDICTS))
     finish_parser.add_argument("--summary", default=None, help="Optional closing summary.")
+    finish_parser.add_argument("--ref", action="append", default=[], dest="refs", help="Related ref such as ticket:PAY-123 or commit:abc123.")
 
     export_parser = subparsers.add_parser("export", help="Zip the active session to a destination file.")
     export_parser.add_argument("destination", help="Destination zip path.")
@@ -259,12 +261,13 @@ def handle_snapshot(store: SessionStore, args: argparse.Namespace) -> int:
 
 
 def handle_finish(store: SessionStore, args: argparse.Namespace) -> int:
-    session, session_dir, events = store.finalize_session(args.verdict, args.summary)
+    session, session_dir, events = store.finalize_session(args.verdict, args.summary, args.refs)
     generated_dir = session_dir / "generated"
     generate_summary(generated_dir / "debug-summary.md", session, events)
     script_name = "repro.ps1" if sys.platform.startswith("win") else "repro.sh"
     generate_repro_script(generated_dir / script_name, events)
     generate_regression_todo(generated_dir / "regression-test.todo.md", session, events)
+    generate_handoff(generated_dir / "handoff.md", session, events)
     write_json(generated_dir / "timeline.json", events)
     _print(f"Session finished: {session_dir.name}")
     _print(f"Generated summary: {generated_dir / 'debug-summary.md'}")

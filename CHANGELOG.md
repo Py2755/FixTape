@@ -2,6 +2,16 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.1.4] - 2026-03-23
+
+### Added
+- Richer handoff bundles with top-level `HANDOFF.md`, `SUMMARY.md`, repro entry points, and `metadata.json`.
+- Support for linking related refs during `finish`, such as `ticket:PAY-123` or `commit:abc123`.
+- Generated `handoff.md` inside each finished session.
+
+### Improved
+- Exported archives now open on a summary-first structure instead of forcing readers to browse the raw session tree first.
+
 ## [0.1.3] - 2026-03-23
 
 ### Added

@@ -3,6 +3,7 @@ from __future__ import annotations
 import platform
 import re
 import zipfile
+import json
 from pathlib import Path
 from typing import Any
 
@@ -170,12 +171,19 @@ class SessionStore:
         append_event(session_dir / "events.jsonl", event)
         return event
 
-    def finalize_session(self, verdict: str, summary: str | None = None) -> tuple[dict[str, Any], Path, list[dict[str, Any]]]:
+    def finalize_session(
+        self,
+        verdict: str,
+        summary: str | None = None,
+        refs: list[str] | None = None,
+    ) -> tuple[dict[str, Any], Path, list[dict[str, Any]]]:
         session, session_dir = self.load_session()
         final_git_state = collect_git_state(self.cwd)
         session["finished_at"] = iso_now()
         session["verdict"] = verdict
         session["final_summary"] = summary
+        merged_refs = list(dict.fromkeys([*(session.get("refs") or []), *(refs or [])]))
+        session["refs"] = merged_refs
         session["final_git_state"] = final_git_state.to_dict() if final_git_state else None
         self.update_session(session_dir, session)
 
@@ -186,6 +194,7 @@ class SessionStore:
                 "timestamp": iso_now(),
                 "verdict": verdict,
                 "summary": summary,
+                "refs": merged_refs,
             },
         )
         events = self.load_events(session_dir)
@@ -199,12 +208,44 @@ class SessionStore:
             session_dir = self.get_active_session_dir()
         except NoActiveSessionError:
             session_dir = self.get_last_session_dir()
+        session, _ = self.load_session_from_dir(session_dir)
+        events = self.load_events(session_dir)
         destination = destination.resolve()
         ensure_dir(destination.parent)
+        bundle_root = f"fixtape-handoff-{session['id']}"
         with zipfile.ZipFile(destination, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+            generated_dir = session_dir / "generated"
+            script_name = "repro.ps1" if (generated_dir / "repro.ps1").exists() else "repro.sh"
+            top_level_files = [
+                (generated_dir / "handoff.md", "HANDOFF.md"),
+                (generated_dir / "debug-summary.md", "SUMMARY.md"),
+                (generated_dir / script_name, "REPRO_SCRIPT"),
+                (generated_dir / "regression-test.todo.md", "REGRESSION_TEST_TODO.md"),
+            ]
+            for source_path, alias in top_level_files:
+                if source_path.exists():
+                    archive.write(source_path, arcname=f"{bundle_root}/{alias}")
+
+            metadata = {
+                "session_id": session["id"],
+                "title": session["title"],
+                "verdict": session.get("verdict"),
+                "created_at": session.get("created_at"),
+                "finished_at": session.get("finished_at"),
+                "refs": session.get("refs") or [],
+                "workspace_root": session.get("workspace_root"),
+                "repo_root": session.get("repo_root"),
+                "artifact_count": sum(1 for item in events if item["type"] == "artifact_attached"),
+                "command_count": sum(1 for item in events if item["type"] == "command_ran"),
+                "note_count": sum(1 for item in events if item["type"] == "note_added"),
+            }
+            archive.writestr(
+                f"{bundle_root}/metadata.json",
+                json.dumps(metadata, indent=2, ensure_ascii=False) + "\n",
+            )
             for file_path in session_dir.rglob("*"):
                 if file_path.is_file():
-                    archive.write(file_path, arcname=str(file_path.relative_to(session_dir.parent)))
+                    archive.write(file_path, arcname=f"{bundle_root}/session/{file_path.relative_to(session_dir)}")
         return destination
 
     def list_sessions(self, limit: int = 10) -> list[dict[str, Any]]:

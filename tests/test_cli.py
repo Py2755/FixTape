@@ -5,6 +5,7 @@ import os
 import sys
 import tempfile
 import unittest
+import zipfile
 from contextlib import redirect_stdout, redirect_stderr
 from pathlib import Path
 from unittest.mock import patch
@@ -58,7 +59,9 @@ class FixTapeCliTests(unittest.TestCase):
         code, _, _ = self.run_cli(["attach", "payload", str(input_file)])
         self.assertEqual(code, 0)
 
-        code, _, _ = self.run_cli(["finish", "--verdict", "fixed", "--summary", "done"])
+        code, _, _ = self.run_cli(
+            ["finish", "--verdict", "fixed", "--summary", "done", "--ref", "ticket:PAY-123", "--ref", "commit:abc123"]
+        )
         self.assertEqual(code, 0)
 
         code, out, _ = self.run_cli(["list"])
@@ -86,6 +89,17 @@ class FixTapeCliTests(unittest.TestCase):
         code, _, _ = self.run_cli(["export", str(archive_path)])
         self.assertEqual(code, 0)
         self.assertTrue(archive_path.exists())
+        with zipfile.ZipFile(archive_path, "r") as archive:
+            names = archive.namelist()
+            self.assertTrue(any(name.endswith("/HANDOFF.md") for name in names))
+            self.assertTrue(any(name.endswith("/metadata.json") for name in names))
+            self.assertTrue(any(name.endswith("/session/generated/handoff.md") for name in names))
+            handoff_name = next(name for name in names if name.endswith("/HANDOFF.md"))
+            metadata_name = next(name for name in names if name.endswith("/metadata.json"))
+            handoff_text = archive.read(handoff_name).decode("utf-8")
+            metadata_text = archive.read(metadata_name).decode("utf-8")
+            self.assertIn("ticket:PAY-123", handoff_text)
+            self.assertIn("commit:abc123", metadata_text)
 
         sessions_root = self.workspace / ".fixtape-home" / "sessions"
         sessions = list(sessions_root.iterdir())
@@ -93,6 +107,7 @@ class FixTapeCliTests(unittest.TestCase):
         generated = sessions[0] / "generated"
         self.assertTrue((generated / "debug-summary.md").exists())
         self.assertTrue((generated / "regression-test.todo.md").exists())
+        self.assertTrue((generated / "handoff.md").exists())
 
     def test_status_requires_active_session(self) -> None:
         code, _, err = self.run_cli(["status"])

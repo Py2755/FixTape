@@ -50,6 +50,7 @@ That makes it useful for:
 ## What you get
 
 At the end of a debugging session, FixTape can generate:
+- `generated/handoff.md`
 - `generated/debug-summary.md`
 - `generated/repro.ps1` or `generated/repro.sh`
 - `generated/regression-test.todo.md`
@@ -101,7 +102,7 @@ fixtape snapshot
 ```powershell
 fixtape note "Root cause was idempotency key ignored on retry path"
 fixtape run --repro python scripts/replay_event.py failing_event.json
-fixtape finish --verdict fixed --summary "Retry path now respects idempotency keys"
+fixtape finish --verdict fixed --summary "Retry path now respects idempotency keys" --ref ticket:PAY-123 --ref commit:abc123
 ```
 
 ### 5. Revisit the result
@@ -114,6 +115,13 @@ fixtape export .\fixtape-session.zip
 ```
 
 `fixtape search` now ranks stronger matches above weaker ones and shows compact field-labeled snippets, so title and summary hits naturally rise above low-signal substring matches.
+
+`fixtape export` now creates a richer handoff bundle with:
+- top-level `HANDOFF.md`
+- top-level `SUMMARY.md`
+- top-level repro and regression TODO entry points
+- `metadata.json` with related refs such as tickets or commits
+- the full original session nested under `session/`
 
 ## Optional shell helpers
 

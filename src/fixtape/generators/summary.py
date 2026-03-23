@@ -40,6 +40,9 @@ def generate_summary(
     lines.append(f"- Verdict: `{session.get('verdict') or 'n/a'}`")
     lines.append(f"- Workspace: `{session['workspace_root']}`")
     lines.append(f"- Shell: `{session['shell']}`")
+    refs = session.get("refs") or []
+    if refs:
+        lines.append(f"- Refs: {', '.join(refs)}")
     if session.get("final_summary"):
         lines.append(f"- Closing summary: {session['final_summary']}")
     lines.append("")
