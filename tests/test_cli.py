@@ -145,7 +145,9 @@ class FixTapeCliTests(unittest.TestCase):
         self.assertIn("function ftr", out)
         self.assertIn("function ftenable", out)
         self.assertIn("function ftdoctor", out)
+        self.assertIn("function ftsuggest", out)
         self.assertIn("fixtape capture", out)
+        self.assertIn("suggest-start --shell-notify", out)
 
     def test_doctor_and_start_include_last_import_buffered_history(self) -> None:
         for index in range(2):
@@ -226,6 +228,71 @@ class FixTapeCliTests(unittest.TestCase):
         code, out, _ = self.run_cli(["search", "replay.py", "--field", "commands"])
         self.assertEqual(code, 0)
         self.assertIn("finish import", out)
+
+    def test_suggest_start_detects_failure_burst_and_trace_signal(self) -> None:
+        code, _, _ = self.run_cli(
+            [
+                "record-shell-command",
+                "--command",
+                "pytest tests/test_billing.py -k duplicate",
+                "--exit-code",
+                "1",
+                "--shell",
+                "powershell",
+                "--cwd",
+                str(self.workspace),
+            ]
+        )
+        self.assertEqual(code, 0)
+
+        code, _, _ = self.run_cli(
+            [
+                "capture",
+                sys.executable,
+                "-c",
+                "import sys; print('Traceback (most recent call last):', file=sys.stderr); print('RuntimeError: duplicate charge', file=sys.stderr); sys.exit(1)",
+            ]
+        )
+        self.assertEqual(code, 1)
+
+        code, out, _ = self.run_cli(["suggest-start", "--window", "20m", "--cooldown", "15m"])
+        self.assertEqual(code, 0)
+        self.assertIn("Suggested FixTape session start:", out)
+        self.assertIn("Kickoff:", out)
+        self.assertIn("--include-last 20m", out)
+
+        code, out, _ = self.run_cli(["doctor", "--window", "20m"])
+        self.assertEqual(code, 0)
+        self.assertIn("Suggestion:", out)
+        self.assertIn("kickoff:", out.lower())
+
+    def test_shell_notify_suppresses_duplicate_start_suggestions(self) -> None:
+        for command in (
+            "pytest tests/test_billing.py -k duplicate",
+            "pytest tests/test_billing.py -k duplicate --maxfail=1",
+        ):
+            code, _, _ = self.run_cli(
+                [
+                    "record-shell-command",
+                    "--command",
+                    command,
+                    "--exit-code",
+                    "1",
+                    "--shell",
+                    "powershell",
+                    "--cwd",
+                    str(self.workspace),
+                ]
+            )
+            self.assertEqual(code, 0)
+
+        code, out, _ = self.run_cli(["suggest-start", "--shell-notify", "--window", "20m", "--cooldown", "15m"])
+        self.assertEqual(code, 0)
+        self.assertIn("FixTape: recent failure burst detected.", out)
+
+        code, out, _ = self.run_cli(["suggest-start", "--shell-notify", "--window", "20m", "--cooldown", "15m"])
+        self.assertEqual(code, 0)
+        self.assertEqual(out.strip(), "")
 
     def test_reindex_rebuilds_cross_session_index(self) -> None:
         code, _, _ = self.run_cli(["start", "index me"])

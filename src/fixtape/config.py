@@ -46,3 +46,7 @@ def flight_recorder_buffer_path(cwd: Path | None = None) -> Path:
 
 def flight_recorder_outputs_root(cwd: Path | None = None) -> Path:
     return ensure_dir(flight_recorder_root(cwd) / "outputs")
+
+
+def flight_recorder_suggestion_state_path(cwd: Path | None = None) -> Path:
+    return flight_recorder_root(cwd) / "suggestion-state.json"

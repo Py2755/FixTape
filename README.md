@@ -67,6 +67,7 @@ Current commands:
 - `fixtape start <title> [--include-last 40m]`
 - `fixtape status`
 - `fixtape doctor [--window 40m]`
+- `fixtape suggest-start [--window 20m]`
 - `fixtape promote --include-last 40m`
 - `fixtape note "<text>"`
 - `fixtape link <ticket|issue|commit|pr|branch|doc|other|current-commit> [value]`
@@ -145,6 +146,7 @@ fixtape recipes
 fixtape triage "retry storm payments"
 fixtape kickoff "payments retry gamma" --query "retry storm payments" --include-last 40m
 fixtape doctor --window 40m
+fixtape suggest-start --window 20m
 fixtape promote --include-last 40m
 fixtape search retry
 fixtape link ticket PAY-123
@@ -187,6 +189,7 @@ FixTape can now also use that history at incident start:
 FixTape now also has a zero-touch flight recorder:
 - shell hooks can keep buffering the last commands even before a session exists
 - `fixtape doctor` shows what is currently buffered
+- `fixtape suggest-start` detects likely incident onset from failure bursts and traceback signals
 - `--include-last 40m` can promote buffered command history into `start`, `kickoff`, `promote`, or `finish`
 - `fixtape capture` records full stdout/stderr into the buffer even outside an active session
 
@@ -236,6 +239,7 @@ ftr python scripts/replay_invoice.py failing_invoice.json
 ftnote "Root cause likely sits in retry path"
 ftsnap
 ftdoctor
+ftsuggest
 ```
 
 POSIX shells:
@@ -247,6 +251,7 @@ ftr python scripts/replay_invoice.py failing_invoice.json
 ftnote "Root cause likely sits in retry path"
 ftsnap
 ftdoctor
+ftsuggest
 ```
 
 `ft` and `ftr` now go through `fixtape capture`, so they work both inside and outside an active session while preserving full stdout/stderr output.
@@ -286,10 +291,12 @@ Invoke-Expression (& fixtape shell-init powershell --mode all)
 pytest tests/test_billing.py -k duplicate
 python scripts/replay_invoice.py failing_invoice.json
 fixtape doctor --window 40m
+fixtape suggest-start --window 20m
 fixtape start "billing retry storm" --include-last 40m
 ```
 
 That gives you the low-friction "black box" path first, then turns the last part of the investigation into a proper FixTape session once you decide the incident matters.
+If the last commands look like a real investigation, shell hooks can also print a one-line suggestion automatically instead of forcing a hard auto-start.
 
 ## Example session flow
 

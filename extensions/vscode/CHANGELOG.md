@@ -1,5 +1,9 @@
 # Change Log
 
+## 0.2.1
+
+- Aligned extension version metadata with the incident-start suggestion release.
+
 ## 0.2.0
 
 - Aligned extension version metadata with the zero-touch flight recorder release.

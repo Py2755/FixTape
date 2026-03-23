@@ -2,6 +2,16 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.2.1] - 2026-03-24
+
+### Added
+- `fixtape suggest-start` for incident-start suggestions based on recent failure bursts and traceback-style signals.
+- Shell notify support with cooldown-based suppression to avoid repeating the same start suggestion every prompt render.
+
+### Improved
+- `fixtape doctor` now surfaces the best current session-start suggestion when recent activity looks like an investigation.
+- Shell helpers now expose `ftsuggest` and can print a one-line “start a session now” hint instead of forcing an automatic session open.
+
 ## [0.2.0] - 2026-03-24
 
 ### Added

@@ -48,6 +48,10 @@ function ftdoctor {
     fixtape doctor @args
 }
 
+function ftsuggest {
+    fixtape suggest-start @args
+}
+
 function ftpromote {
     fixtape promote @args
 }
@@ -79,8 +83,9 @@ function global:prompt {
     if ($env:FIXTAPE_HOOKS_ENABLED -eq '1' -and $history -and $history.Id -ne $global:FixTapeLastHistoryId) {
         $global:FixTapeLastHistoryId = $history.Id
         $cmd = [string]$history.CommandLine
-        if ($cmd -and $cmd -notmatch '^(fixtape|ft|ftr|ftnote|ftsnap|ftshow|ftsearch|ftdoctor|ftpromote|ftenable|ftdisable)\\b') {
+        if ($cmd -and $cmd -notmatch '^(fixtape|ft|ftr|ftnote|ftsnap|ftshow|ftsearch|ftdoctor|ftsuggest|ftpromote|ftenable|ftdisable)\\b') {
             fixtape record-shell-command --command $cmd --exit-code $exitCode --shell powershell --cwd (Get-Location).Path --captured-via shell_hook *> $null
+            fixtape suggest-start --shell-notify --window 20m --cooldown 15m 2> $null
         }
     }
     & $global:FixTapeOriginalPrompt
@@ -91,11 +96,11 @@ function global:prompt {
 
 def _posix_init(shell_name: str, mode: str) -> str:
     helpers = """ft() {
-  fixtape run -- "$@"
+  fixtape capture -- "$@"
 }
 
 ftr() {
-  fixtape run --repro -- "$@"
+  fixtape capture --repro -- "$@"
 }
 
 ftnote() {
@@ -116,6 +121,10 @@ ftsearch() {
 
 ftdoctor() {
   fixtape doctor "$@"
+}
+
+ftsuggest() {
+  fixtape suggest-start "$@"
 }
 
 ftpromote() {
@@ -148,11 +157,12 @@ _fixtape_capture_last_command() {
   [[ "$hist_num" == "${_FIXTAPE_LAST_HIST:-}" ]] && return
   _FIXTAPE_LAST_HIST="$hist_num"
   case "$cmd" in
-    fixtape*|ft\ *|ftr\ *|ftnote*|ftsnap*|ftshow*|ftsearch*|ftdoctor*|ftpromote*|ftenable*|ftdisable*)
+    fixtape*|ft\ *|ftr\ *|ftnote*|ftsnap*|ftshow*|ftsearch*|ftdoctor*|ftsuggest*|ftpromote*|ftenable*|ftdisable*)
       return
       ;;
   esac
   fixtape record-shell-command --command "$cmd" --exit-code "$exit_code" --shell bash --cwd "$PWD" --captured-via shell_hook >/dev/null 2>&1 || true
+  fixtape suggest-start --shell-notify --window 20m --cooldown 15m 2>/dev/null || true
 }
 
 if [[ -n "${PROMPT_COMMAND:-}" ]]; then
@@ -171,11 +181,12 @@ _fixtape_capture_last_command() {
   [[ "$last_cmd" == "${_FIXTAPE_LAST_CMD:-}" ]] && return
   _FIXTAPE_LAST_CMD="$last_cmd"
   case "$last_cmd" in
-    fixtape*|ft\ *|ftr\ *|ftnote*|ftsnap*|ftshow*|ftsearch*|ftdoctor*|ftpromote*|ftenable*|ftdisable*)
+    fixtape*|ft\ *|ftr\ *|ftnote*|ftsnap*|ftshow*|ftsearch*|ftdoctor*|ftsuggest*|ftpromote*|ftenable*|ftdisable*)
       return
       ;;
   esac
   fixtape record-shell-command --command "$last_cmd" --exit-code "$exit_code" --shell zsh --cwd "$PWD" --captured-via shell_hook >/dev/null 2>&1 || true
+  fixtape suggest-start --shell-notify --window 20m --cooldown 15m 2>/dev/null || true
 }
 
 typeset -ga precmd_functions

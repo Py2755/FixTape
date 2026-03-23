@@ -7,12 +7,30 @@ import re
 from pathlib import Path
 from typing import Any
 
-from fixtape.config import flight_recorder_buffer_path, flight_recorder_outputs_root, flight_recorder_root
-from fixtape.utils import append_jsonl, ensure_dir, format_bytes, iso_now, iso_to_datetime, parse_time_window, read_jsonl, utc_now
+from fixtape.config import (
+    flight_recorder_buffer_path,
+    flight_recorder_outputs_root,
+    flight_recorder_root,
+    flight_recorder_suggestion_state_path,
+)
+from fixtape.utils import (
+    append_jsonl,
+    ensure_dir,
+    format_bytes,
+    iso_now,
+    iso_to_datetime,
+    parse_time_window,
+    read_json,
+    read_jsonl,
+    write_json,
+    utc_now,
+)
 
 DEFAULT_RETENTION_WINDOW = "60m"
 DEFAULT_MAX_BYTES = 48 * 1024 * 1024
 PREVIEW_LIMIT = 240
+DEFAULT_SUGGEST_WINDOW = "20m"
+DEFAULT_SUGGEST_COOLDOWN = "15m"
 
 
 class PreSessionRecorder:
@@ -21,6 +39,7 @@ class PreSessionRecorder:
         self.root = flight_recorder_root(self.cwd)
         self.buffer_path = flight_recorder_buffer_path(self.cwd)
         self.outputs_dir = flight_recorder_outputs_root(self.cwd)
+        self.suggestion_state_path = flight_recorder_suggestion_state_path(self.cwd)
         self.max_bytes = int(os.environ.get("FIXTAPE_RECORDER_MAX_BYTES", str(DEFAULT_MAX_BYTES)))
         self.retention_window = os.environ.get("FIXTAPE_RECORDER_WINDOW", DEFAULT_RETENTION_WINDOW)
 
@@ -80,6 +99,7 @@ class PreSessionRecorder:
 
     def status(self, window: str | None = None, preview_limit: int = 5) -> dict[str, Any]:
         entries = self.recent_entries(window=window)
+        suggestion = self.suggest_session_start(window=window or DEFAULT_SUGGEST_WINDOW, cooldown="")
         if not entries:
             return {
                 "entry_count": 0,
@@ -90,6 +110,7 @@ class PreSessionRecorder:
                 "recent": [],
                 "oldest_timestamp": None,
                 "newest_timestamp": None,
+                "suggestion": suggestion,
             }
         output_bytes = sum(self._entry_size_bytes(entry) for entry in entries)
         return {
@@ -112,7 +133,76 @@ class PreSessionRecorder:
             ],
             "output_bytes_human": format_bytes(output_bytes),
             "max_bytes_human": format_bytes(self.max_bytes),
+            "suggestion": suggestion,
         }
+
+    def suggest_session_start(
+        self,
+        *,
+        window: str = DEFAULT_SUGGEST_WINDOW,
+        cooldown: str = DEFAULT_SUGGEST_COOLDOWN,
+        active_session: bool = False,
+        mark_seen: bool = False,
+    ) -> dict[str, Any] | None:
+        if active_session:
+            return None
+        entries = self.recent_entries(window=window)
+        if len(entries) < 2:
+            return None
+
+        failing = [entry for entry in entries if int(entry.get("exit_code") or 0) != 0]
+        if not failing:
+            return None
+
+        repeated_fail = self._repeated_fail_bucket(failing)
+        trace_signals = [entry for entry in failing if self._has_trace_signal(entry)]
+        recent_fail_span_minutes = self._fail_span_minutes(failing)
+        score = 0
+        reasons: list[str] = []
+
+        if len(failing) >= 2:
+            score += 30
+            reasons.append(f"{len(failing)} non-zero commands in {window}")
+        if len(failing) >= 3:
+            score += 15
+        if recent_fail_span_minutes <= 10:
+            score += 10
+            reasons.append(f"fail burst over {recent_fail_span_minutes}m")
+        if repeated_fail:
+            score += 20
+            reasons.append(f"repeated target: {repeated_fail}")
+        if trace_signals:
+            score += 35
+            reasons.append("traceback or exception signal detected")
+        if int(entries[-1].get("exit_code") or 0) != 0:
+            score += 10
+
+        if score < 45:
+            return None
+
+        query = self._build_query(failing, trace_signals, repeated_fail)
+        title = self._build_title(query, repeated_fail)
+        signature = hashlib.sha256(
+            "|".join(str(entry.get("pre_session_id") or "") for entry in failing[-4:]).encode("utf-8")
+        ).hexdigest()
+        suggestion = {
+            "score": score,
+            "confidence": "high" if score >= 70 else "medium",
+            "query": query,
+            "title": title,
+            "include_last": window,
+            "reason": reasons[0] if reasons else "recent non-zero failure activity",
+            "reasons": reasons,
+            "command_start": f'fixtape start "{title}" --include-last {window}',
+            "command_kickoff": f'fixtape kickoff "{title}" --query "{query}" --include-last {window}',
+            "signature": signature,
+        }
+
+        if cooldown and self._is_suppressed(signature, cooldown):
+            return None
+        if mark_seen:
+            self._mark_suggestion_seen(signature)
+        return suggestion
 
     def _load_entries(self) -> list[dict[str, Any]]:
         entries = read_jsonl(self.buffer_path)
@@ -166,6 +256,100 @@ class PreSessionRecorder:
         for pattern, replacement in patterns:
             sanitized = pattern.sub(replacement, sanitized)
         return sanitized
+
+    def _has_trace_signal(self, entry: dict[str, Any]) -> bool:
+        text_parts = [
+            str(entry.get("command") or ""),
+            str(entry.get("stderr_preview") or ""),
+            str(entry.get("stdout_preview") or ""),
+        ]
+        combined = " ".join(text_parts).lower()
+        patterns = [
+            "traceback",
+            "exception",
+            "runtimeerror",
+            "valueerror",
+            "typeerror",
+            "assertionerror",
+            "pytest",
+            "failed",
+            "panic",
+        ]
+        return any(token in combined for token in patterns)
+
+    def _repeated_fail_bucket(self, failing: list[dict[str, Any]]) -> str | None:
+        buckets: dict[str, int] = {}
+        for entry in failing:
+            bucket = self._command_focus(entry)
+            if bucket:
+                buckets[bucket] = buckets.get(bucket, 0) + 1
+        if not buckets:
+            return None
+        bucket, count = sorted(buckets.items(), key=lambda item: (item[1], item[0]), reverse=True)[0]
+        return bucket if count >= 2 else None
+
+    def _command_focus(self, entry: dict[str, Any]) -> str | None:
+        args = entry.get("args")
+        tokens = [str(item) for item in args] if isinstance(args, list) else str(entry.get("command") or "").split()
+        interesting = []
+        for token in tokens:
+            cleaned = token.strip().strip('"').strip("'")
+            if not cleaned or cleaned.startswith("-") or cleaned in {"python", "python.exe", "pytest", "node", "npm", "pnpm"}:
+                continue
+            if "/" in cleaned or "\\" in cleaned or "." in cleaned:
+                interesting.append(cleaned)
+            elif re.fullmatch(r"[a-z0-9_-]{4,}", cleaned.lower()):
+                interesting.append(cleaned)
+        if interesting:
+            return interesting[0]
+        if tokens:
+            return tokens[0]
+        return None
+
+    def _fail_span_minutes(self, failing: list[dict[str, Any]]) -> int:
+        datetimes = [self._entry_datetime(entry) for entry in failing if self._entry_datetime(entry)]
+        if len(datetimes) < 2:
+            return 0
+        delta_seconds = max((max(datetimes) - min(datetimes)).total_seconds(), 0)
+        return max(1, round(delta_seconds / 60))
+
+    def _build_query(self, failing: list[dict[str, Any]], trace_signals: list[dict[str, Any]], repeated_fail: str | None) -> str:
+        if trace_signals:
+            for entry in reversed(trace_signals):
+                snippet = str(entry.get("stderr_preview") or entry.get("stdout_preview") or "").strip()
+                if snippet:
+                    compact = " ".join(snippet.split())
+                    return compact[:120]
+        last_command = str(failing[-1].get("command") or "").strip()
+        if repeated_fail and last_command:
+            return f"{repeated_fail} {last_command}"[:120]
+        if last_command:
+            return last_command[:120]
+        return "recent failure burst"
+
+    def _build_title(self, query: str, repeated_fail: str | None) -> str:
+        base = repeated_fail or query
+        tokens = re.findall(r"[a-z0-9_.-]+", base.lower())
+        filtered = [
+            token
+            for token in tokens
+            if token not in {"traceback", "exception", "pytest", "python", "failed", "error", "runtimeerror", "typeerror"}
+        ]
+        if not filtered:
+            filtered = ["incident"]
+        return " ".join(filtered[:4])
+
+    def _is_suppressed(self, signature: str, cooldown: str) -> bool:
+        state = read_json(self.suggestion_state_path, default={}) or {}
+        if state.get("signature") != signature:
+            return False
+        seen_at = iso_to_datetime(str(state.get("seen_at") or ""))
+        if seen_at is None:
+            return False
+        return seen_at >= (utc_now() - parse_time_window(cooldown))
+
+    def _mark_suggestion_seen(self, signature: str) -> None:
+        write_json(self.suggestion_state_path, {"signature": signature, "seen_at": iso_now()})
 
     def _prune(self) -> None:
         entries = self._load_entries()

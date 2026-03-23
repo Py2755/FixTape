@@ -119,6 +119,11 @@ def build_parser() -> argparse.ArgumentParser:
     doctor_parser = subparsers.add_parser("doctor", help="Show zero-touch flight-recorder status and recent buffered commands.")
     doctor_parser.add_argument("--window", default=None, help="Optional time window such as 40m or 2h.")
 
+    suggest_parser = subparsers.add_parser("suggest-start", help="Suggest starting a FixTape session from recent failure activity.")
+    suggest_parser.add_argument("--window", default="20m", help="Time window to analyze, such as 20m or 1h.")
+    suggest_parser.add_argument("--cooldown", default="15m", help="Suppress duplicate shell suggestions for this long.")
+    suggest_parser.add_argument("--shell-notify", action="store_true", help=argparse.SUPPRESS)
+
     promote_parser = subparsers.add_parser("promote", help="Import recent pre-session commands into the active session.")
     promote_parser.add_argument("--include-last", required=True, help="Import buffered commands such as 40m or 90s.")
 
@@ -545,11 +550,20 @@ def handle_doctor(store: SessionStore, args: argparse.Namespace) -> int:
         _print(f"Newest command: {status['newest_timestamp']}")
     if not status["recent"]:
         _print("Recent commands: none")
+        if status.get("suggestion"):
+            _print("Suggestion:")
+            _print(f"  {status['suggestion']['command_kickoff']}")
         return 0
     _print("Recent commands:")
     for item in status["recent"]:
         marker = "output" if item["has_output"] else "history"
         _print(f"  {item['timestamp']} | exit={item['exit_code']} | {marker} | {item['command']}")
+    suggestion = status.get("suggestion")
+    if suggestion:
+        _print("Suggestion:")
+        _print(f"  reason: {suggestion['reason']}")
+        _print(f"  start: {suggestion['command_start']}")
+        _print(f"  kickoff: {suggestion['command_kickoff']}")
     return 0
 
 
@@ -558,6 +572,29 @@ def handle_promote(store: SessionStore, args: argparse.Namespace) -> int:
     result = store.include_recent_buffer(session_dir, args.include_last, source="promote")
     _print(f"Promoted buffered commands into session: {session['id']}")
     _print(f"Imported: {result['count']} from the last {args.include_last}")
+    return 0
+
+
+def handle_suggest_start(store: SessionStore, args: argparse.Namespace) -> int:
+    suggestion = store.suggest_session_start(
+        window=args.window,
+        cooldown=args.cooldown if args.shell_notify else "",
+        mark_seen=args.shell_notify,
+    )
+    if not suggestion:
+        return 0
+    if args.shell_notify:
+        _print(
+            "FixTape: recent failure burst detected. "
+            f"Suggested: {suggestion['command_kickoff']}"
+        )
+        return 0
+    _print("Suggested FixTape session start:")
+    _print(f"Reason: {suggestion['reason']}")
+    if suggestion["reasons"]:
+        _print(f"Signals: {', '.join(suggestion['reasons'])}")
+    _print(f"Start: {suggestion['command_start']}")
+    _print(f"Kickoff: {suggestion['command_kickoff']}")
     return 0
 
 
@@ -739,6 +776,7 @@ def main(argv: list[str] | None = None) -> int:
         "record-shell-command": handle_record_shell_command,
         "status": handle_status,
         "doctor": handle_doctor,
+        "suggest-start": handle_suggest_start,
         "promote": handle_promote,
         "note": handle_note,
         "link": handle_link,

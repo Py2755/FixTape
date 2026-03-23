@@ -268,7 +268,27 @@ class SessionStore:
 
     def recorder_status(self, window: str | None = None) -> dict[str, Any]:
         try:
-            return self.recorder.status(window=window)
+            has_active_session = self.pointer_path.exists()
+            status = self.recorder.status(window=window)
+            if has_active_session:
+                status["suggestion"] = None
+            return status
+        except ValueError as exc:
+            raise FixTapeError(str(exc)) from exc
+
+    def suggest_session_start(
+        self,
+        window: str = "20m",
+        cooldown: str = "15m",
+        mark_seen: bool = False,
+    ) -> dict[str, Any] | None:
+        try:
+            return self.recorder.suggest_session_start(
+                window=window,
+                cooldown=cooldown,
+                active_session=self.pointer_path.exists(),
+                mark_seen=mark_seen,
+            )
         except ValueError as exc:
             raise FixTapeError(str(exc)) from exc
 
