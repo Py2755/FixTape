@@ -102,6 +102,12 @@ class SessionStore:
             raise NoActiveSessionError("No finished FixTape session is available for export.")
         return self._resolve_pointer(pointer)
 
+    def get_preferred_session_dir(self) -> Path:
+        try:
+            return self.get_active_session_dir()
+        except NoActiveSessionError:
+            return self.get_last_session_dir()
+
     def get_session_dir(self, session_id: str) -> Path:
         session_dir = self.sessions_dir / session_id
         if not session_dir.exists():
@@ -135,6 +141,37 @@ class SessionStore:
 
     def update_session(self, session_dir: Path, session: dict[str, Any]) -> None:
         write_json(session_dir / "session.json", session)
+
+    def resolve_session_for_refs(self, session_id: str | None = None) -> dict[str, Any]:
+        if session_id:
+            session, _ = self.load_session_by_id(session_id)
+            return session
+        session_dir = self.get_preferred_session_dir()
+        session, _ = self.load_session_from_dir(session_dir)
+        return session
+
+    def current_commit_ref(self) -> str:
+        git_state = collect_git_state(self.cwd)
+        if git_state is None or not git_state.head:
+            raise FixTapeError("Current directory is not inside a Git repository with a resolvable HEAD commit.")
+        return f"commit:{git_state.head}"
+
+    def add_refs(self, refs: list[str], session_id: str | None = None) -> list[str]:
+        session_dir = self.get_session_dir(session_id) if session_id else self.get_preferred_session_dir()
+        session, _ = self.load_session_from_dir(session_dir)
+        merged_refs = list(dict.fromkeys([*(session.get("refs") or []), *refs]))
+        session["refs"] = merged_refs
+        self.update_session(session_dir, session)
+        append_event(
+            session_dir / "events.jsonl",
+            {
+                "type": "refs_linked",
+                "timestamp": iso_now(),
+                "refs": refs,
+            },
+        )
+        self._sync_session_index(session_dir)
+        return merged_refs
 
     def add_note(self, text: str) -> None:
         _, session_dir = self.load_session()
@@ -273,7 +310,7 @@ class SessionStore:
         needle = query.strip().lower()
         if not needle:
             return []
-        active_fields = fields or {"title", "summary", "notes", "commands", "artifacts"}
+        active_fields = fields or {"title", "summary", "notes", "commands", "artifacts", "refs"}
         query_terms = [term for term in re.split(r"\s+", needle) if term]
 
         matches: list[dict[str, Any]] = []
@@ -289,6 +326,7 @@ class SessionStore:
 
             title = str(session.get("title") or "")
             summary = str(session.get("summary") or "")
+            refs = [str(item) for item in session.get("refs", [])]
             if "title" in active_fields:
                 field_score = self._score_text_match(title, needle, query_terms, base_weight=80)
                 if field_score:
@@ -301,6 +339,13 @@ class SessionStore:
                     hit_fields.append("summary")
                     snippets.append(self._make_snippet("summary", summary, needle))
                     score += field_score
+            for ref in refs:
+                if "refs" in active_fields:
+                    field_score = self._score_text_match(ref, needle, query_terms, base_weight=55)
+                    if field_score:
+                        hit_fields.append("ref")
+                        snippets.append(self._make_snippet("ref", ref, needle))
+                        score += field_score
 
             for text in session.get("notes", []):
                 if "notes" in active_fields:

@@ -37,6 +37,8 @@ For full stdout/stderr capture, keep using `fixtape run`.
 fixtape search "retry idempotency"
 fixtape search "pytest duplicate" --field commands
 fixtape reindex
+fixtape link ticket PAY-123
+fixtape refs
 ```
 
 Search results are ranked, and the CLI prints compact snippets with the field that matched.

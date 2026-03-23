@@ -65,6 +65,8 @@ Current commands:
 - `fixtape start <title>`
 - `fixtape status`
 - `fixtape note "<text>"`
+- `fixtape link <ticket|issue|commit|pr|branch|doc|other|current-commit> [value]`
+- `fixtape refs [session-id]`
 - `fixtape run [--repro] <command...>`
 - `fixtape attach <kind> <path>`
 - `fixtape snapshot`
@@ -114,12 +116,22 @@ fixtape finish --verdict fixed --summary "Retry path now respects idempotency ke
 fixtape list
 fixtape show
 fixtape search retry
+fixtape link ticket PAY-123
 fixtape export .\fixtape-session.zip
 ```
 
 `fixtape search` now ranks stronger matches above weaker ones and shows compact field-labeled snippets, so title and summary hits naturally rise above low-signal substring matches.
 
 FixTape now also maintains a local cross-session index in `.fixtape/session-index.json`, which powers faster `list` and `search` across accumulated debugging history.
+
+Refs can now be linked directly after or during a session:
+
+```powershell
+fixtape link ticket PAY-123
+fixtape link issue 481
+fixtape link current-commit
+fixtape refs
+```
 
 `fixtape export` now creates a richer handoff bundle with:
 - top-level `HANDOFF.md`

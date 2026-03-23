@@ -2,6 +2,15 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.1.9] - 2026-03-24
+
+### Added
+- `fixtape link` and `fixtape refs` commands for direct ref management.
+- Search support for linked refs such as tickets and commits.
+
+### Improved
+- `show` and `status` now surface linked refs directly.
+
 ## [0.1.8] - 2026-03-24
 
 ### Added

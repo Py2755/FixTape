@@ -163,6 +163,22 @@ class FixTapeCliTests(unittest.TestCase):
         payload = json.loads(index_path.read_text(encoding="utf-8"))
         self.assertEqual(payload["sessions"][0]["title"], "index me")
 
+    def test_link_and_refs_commands(self) -> None:
+        code, _, _ = self.run_cli(["start", "link me"])
+        self.assertEqual(code, 0)
+
+        code, out, _ = self.run_cli(["link", "ticket", "PAY-999"])
+        self.assertEqual(code, 0)
+        self.assertIn("ticket:PAY-999", out)
+
+        code, out, _ = self.run_cli(["refs"])
+        self.assertEqual(code, 0)
+        self.assertIn("ticket:PAY-999", out)
+
+        code, out, _ = self.run_cli(["search", "PAY-999", "--field", "refs"])
+        self.assertEqual(code, 0)
+        self.assertIn("link me", out)
+
     def test_record_shell_command_is_searchable(self) -> None:
         code, _, _ = self.run_cli(["start", "hooked bug"])
         self.assertEqual(code, 0)

@@ -23,7 +23,8 @@ from fixtape.utils import iso_now, write_json
 
 VALID_VERDICTS = {"fixed", "unresolved", "handoff", "needs-more-data"}
 VALID_ARTIFACT_KINDS = {"trace", "log", "payload", "query", "screenshot", "config", "note", "other"}
-VALID_SEARCH_FIELDS = {"title", "summary", "notes", "commands", "artifacts"}
+VALID_SEARCH_FIELDS = {"title", "summary", "notes", "commands", "artifacts", "refs"}
+LINK_KINDS = {"ticket", "issue", "commit", "pr", "branch", "doc", "other", "current-commit"}
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -66,6 +67,13 @@ def build_parser() -> argparse.ArgumentParser:
 
     note_parser = subparsers.add_parser("note", help="Add a note to the active session.")
     note_parser.add_argument("text", help="Time-stamped debugging note.")
+
+    link_parser = subparsers.add_parser("link", help="Link a ticket, issue, commit, or other ref to the current or latest session.")
+    link_parser.add_argument("kind", choices=sorted(LINK_KINDS), help="Reference kind.")
+    link_parser.add_argument("value", nargs="?", default=None, help="Reference value. Omit only for current-commit.")
+
+    refs_parser = subparsers.add_parser("refs", help="Show linked refs for the current, latest, or specified session.")
+    refs_parser.add_argument("session_id", nargs="?", default=None, help="Optional FixTape session ID.")
 
     run_parser = subparsers.add_parser("run", help="Run and capture a command.")
     run_parser.add_argument("--repro", action="store_true", help="Mark the command as reproducible.")
@@ -139,6 +147,8 @@ def handle_show(store: SessionStore, args: argparse.Namespace) -> int:
     _print(f"Created: {session['created_at']}")
     _print(f"Finished: {session.get('finished_at') or 'active'}")
     _print(f"Verdict: {session.get('verdict') or 'n/a'}")
+    if session.get("refs"):
+        _print(f"Refs: {', '.join(session['refs'])}")
     _print(f"Directory: {session_dir}")
     _print(f"Summary: {generated_dir / 'debug-summary.md'}")
     _print(f"Timeline: {generated_dir / 'timeline.json'}")
@@ -204,6 +214,8 @@ def handle_status(store: SessionStore, args: argparse.Namespace) -> int:
     _print(f"Commands: {counts['commands']}")
     _print(f"Artifacts: {counts['artifacts']}")
     _print(f"Snapshots: {counts['snapshots']}")
+    if session.get("refs"):
+        _print(f"Refs: {', '.join(session['refs'])}")
     if session.get("initial_git_state"):
         state = session["initial_git_state"]
         _print(f"Git branch: {state.get('branch') or 'unknown'}")
@@ -214,6 +226,34 @@ def handle_status(store: SessionStore, args: argparse.Namespace) -> int:
 def handle_note(store: SessionStore, args: argparse.Namespace) -> int:
     store.add_note(args.text)
     _print("Note captured.")
+    return 0
+
+
+def handle_link(store: SessionStore, args: argparse.Namespace) -> int:
+    if args.kind == "current-commit":
+        ref = store.current_commit_ref()
+    else:
+        if not args.value:
+            raise FixTapeError(f"Reference value is required for kind: {args.kind}")
+        ref_value = args.value.strip()
+        if not ref_value:
+            raise FixTapeError("Reference value cannot be empty.")
+        ref = ref_value if args.kind == "other" else f"{args.kind}:{ref_value}"
+
+    refs = store.add_refs([ref])
+    _print(f"Linked ref: {ref}")
+    _print(f"Current refs: {', '.join(refs)}")
+    return 0
+
+
+def handle_refs(store: SessionStore, args: argparse.Namespace) -> int:
+    session = store.resolve_session_for_refs(args.session_id)
+    refs = session.get("refs") or []
+    if not refs:
+        _print("No refs linked.")
+        return 0
+    for ref in refs:
+        _print(ref)
     return 0
 
 
@@ -307,6 +347,8 @@ def main(argv: list[str] | None = None) -> int:
         "record-shell-command": handle_record_shell_command,
         "status": handle_status,
         "note": handle_note,
+        "link": handle_link,
+        "refs": handle_refs,
         "run": handle_run,
         "attach": handle_attach,
         "snapshot": handle_snapshot,
