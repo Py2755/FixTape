@@ -16,7 +16,7 @@ def _powershell_init(mode: str) -> str:
         Write-Error "Usage: ft <command...>"
         return
     }
-    fixtape run -- @args
+    fixtape capture -- @args
 }
 
 function ftr {
@@ -24,7 +24,7 @@ function ftr {
         Write-Error "Usage: ftr <command...>"
         return
     }
-    fixtape run --repro -- @args
+    fixtape capture --repro -- @args
 }
 
 function ftnote {
@@ -43,16 +43,24 @@ function ftshow {
 function ftsearch {
     fixtape search @args
 }
+
+function ftdoctor {
+    fixtape doctor @args
+}
+
+function ftpromote {
+    fixtape promote @args
+}
 """
     hooks = """
 function ftenable {
     $env:FIXTAPE_HOOKS_ENABLED = '1'
-    Write-Host 'FixTape shell hooks enabled.'
+    Write-Host 'FixTape flight recorder enabled.'
 }
 
 function ftdisable {
     $env:FIXTAPE_HOOKS_ENABLED = '0'
-    Write-Host 'FixTape shell hooks disabled.'
+    Write-Host 'FixTape flight recorder disabled.'
 }
 
 if (-not $global:FixTapeOriginalPrompt) {
@@ -61,6 +69,9 @@ if (-not $global:FixTapeOriginalPrompt) {
 if (-not $global:FixTapeLastHistoryId) {
     $global:FixTapeLastHistoryId = 0
 }
+if (-not $env:FIXTAPE_HOOKS_ENABLED) {
+    $env:FIXTAPE_HOOKS_ENABLED = '1'
+}
 
 function global:prompt {
     $exitCode = if ($?) { 0 } elseif ($LASTEXITCODE -ne $null) { [int]$LASTEXITCODE } else { 1 }
@@ -68,8 +79,8 @@ function global:prompt {
     if ($env:FIXTAPE_HOOKS_ENABLED -eq '1' -and $history -and $history.Id -ne $global:FixTapeLastHistoryId) {
         $global:FixTapeLastHistoryId = $history.Id
         $cmd = [string]$history.CommandLine
-        if ($cmd -and $cmd -notmatch '^(fixtape|ft|ftr|ftnote|ftsnap|ftshow|ftsearch|ftenable|ftdisable)\\b') {
-            fixtape record-shell-command --command $cmd --exit-code $exitCode --shell powershell --cwd (Get-Location).Path *> $null
+        if ($cmd -and $cmd -notmatch '^(fixtape|ft|ftr|ftnote|ftsnap|ftshow|ftsearch|ftdoctor|ftpromote|ftenable|ftdisable)\\b') {
+            fixtape record-shell-command --command $cmd --exit-code $exitCode --shell powershell --cwd (Get-Location).Path --captured-via shell_hook *> $null
         }
     }
     & $global:FixTapeOriginalPrompt
@@ -102,17 +113,27 @@ ftshow() {
 ftsearch() {
   fixtape search "$@"
 }
+
+ftdoctor() {
+  fixtape doctor "$@"
+}
+
+ftpromote() {
+  fixtape promote "$@"
+}
 """
     hooks_common = """
 ftenable() {
   export FIXTAPE_HOOKS_ENABLED=1
-  echo "FixTape shell hooks enabled."
+  echo "FixTape flight recorder enabled."
 }
 
 ftdisable() {
   export FIXTAPE_HOOKS_ENABLED=0
-  echo "FixTape shell hooks disabled."
+  echo "FixTape flight recorder disabled."
 }
+
+: "${FIXTAPE_HOOKS_ENABLED:=1}"
 """
     if shell_name in {"bash", "sh"}:
         hooks = hooks_common + r"""
@@ -127,11 +148,11 @@ _fixtape_capture_last_command() {
   [[ "$hist_num" == "${_FIXTAPE_LAST_HIST:-}" ]] && return
   _FIXTAPE_LAST_HIST="$hist_num"
   case "$cmd" in
-    fixtape*|ft\ *|ftr\ *|ftnote*|ftsnap*|ftshow*|ftsearch*|ftenable*|ftdisable*)
+    fixtape*|ft\ *|ftr\ *|ftnote*|ftsnap*|ftshow*|ftsearch*|ftdoctor*|ftpromote*|ftenable*|ftdisable*)
       return
       ;;
   esac
-  fixtape record-shell-command --command "$cmd" --exit-code "$exit_code" --shell bash --cwd "$PWD" >/dev/null 2>&1 || true
+  fixtape record-shell-command --command "$cmd" --exit-code "$exit_code" --shell bash --cwd "$PWD" --captured-via shell_hook >/dev/null 2>&1 || true
 }
 
 if [[ -n "${PROMPT_COMMAND:-}" ]]; then
@@ -150,11 +171,11 @@ _fixtape_capture_last_command() {
   [[ "$last_cmd" == "${_FIXTAPE_LAST_CMD:-}" ]] && return
   _FIXTAPE_LAST_CMD="$last_cmd"
   case "$last_cmd" in
-    fixtape*|ft\ *|ftr\ *|ftnote*|ftsnap*|ftshow*|ftsearch*|ftenable*|ftdisable*)
+    fixtape*|ft\ *|ftr\ *|ftnote*|ftsnap*|ftshow*|ftsearch*|ftdoctor*|ftpromote*|ftenable*|ftdisable*)
       return
       ;;
   esac
-  fixtape record-shell-command --command "$last_cmd" --exit-code "$exit_code" --shell zsh --cwd "$PWD" >/dev/null 2>&1 || true
+  fixtape record-shell-command --command "$last_cmd" --exit-code "$exit_code" --shell zsh --cwd "$PWD" --captured-via shell_hook >/dev/null 2>&1 || true
 }
 
 typeset -ga precmd_functions

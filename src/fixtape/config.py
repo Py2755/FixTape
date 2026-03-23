@@ -34,3 +34,15 @@ def session_index_path(cwd: Path | None = None) -> Path:
 
 def sessions_root(cwd: Path | None = None) -> Path:
     return ensure_dir(resolve_store_root(cwd) / "sessions")
+
+
+def flight_recorder_root(cwd: Path | None = None) -> Path:
+    return ensure_dir(resolve_store_root(cwd) / "flight-recorder")
+
+
+def flight_recorder_buffer_path(cwd: Path | None = None) -> Path:
+    return flight_recorder_root(cwd) / "buffer.jsonl"
+
+
+def flight_recorder_outputs_root(cwd: Path | None = None) -> Path:
+    return ensure_dir(flight_recorder_root(cwd) / "outputs")

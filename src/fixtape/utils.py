@@ -5,7 +5,7 @@ import os
 import re
 import shlex
 import subprocess
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -63,3 +63,36 @@ def shell_join(args: list[str]) -> str:
 
 def detect_shell() -> str:
     return os.environ.get("SHELL") or os.environ.get("COMSPEC") or "unknown"
+
+
+def parse_time_window(value: str) -> timedelta:
+    match = re.fullmatch(r"\s*(\d+)\s*([smhd]?)\s*", value or "")
+    if not match:
+        raise ValueError(f"Unsupported time window: {value}")
+    amount = int(match.group(1))
+    unit = match.group(2) or "m"
+    unit_seconds = {
+        "s": 1,
+        "m": 60,
+        "h": 60 * 60,
+        "d": 24 * 60 * 60,
+    }
+    return timedelta(seconds=amount * unit_seconds[unit])
+
+
+def iso_to_datetime(value: str | None) -> datetime | None:
+    if not value:
+        return None
+    return datetime.fromisoformat(value)
+
+
+def format_bytes(size: int) -> str:
+    units = ["B", "KiB", "MiB", "GiB"]
+    value = float(max(size, 0))
+    for unit in units:
+        if value < 1024 or unit == units[-1]:
+            if unit == "B":
+                return f"{int(value)} {unit}"
+            return f"{value:.1f} {unit}"
+        value /= 1024
+    return f"{size} B"

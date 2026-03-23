@@ -144,6 +144,88 @@ class FixTapeCliTests(unittest.TestCase):
         self.assertIn("function ft", out)
         self.assertIn("function ftr", out)
         self.assertIn("function ftenable", out)
+        self.assertIn("function ftdoctor", out)
+        self.assertIn("fixtape capture", out)
+
+    def test_doctor_and_start_include_last_import_buffered_history(self) -> None:
+        for index in range(2):
+            code, _, _ = self.run_cli(
+                [
+                    "record-shell-command",
+                    "--command",
+                    f"pytest tests/test_retry.py -k duplicate_{index}",
+                    "--exit-code",
+                    "1",
+                    "--shell",
+                    "powershell",
+                    "--cwd",
+                    str(self.workspace),
+                ]
+            )
+            self.assertEqual(code, 0)
+
+        code, out, _ = self.run_cli(["doctor", "--window", "40m"])
+        self.assertEqual(code, 0)
+        self.assertIn("Buffered commands: 2", out)
+        self.assertIn("duplicate_1", out)
+
+        code, out, _ = self.run_cli(["start", "late start retry", "--include-last", "40m"])
+        self.assertEqual(code, 0)
+        self.assertIn("Imported buffered commands: 2", out)
+
+        code, out, _ = self.run_cli(["status"])
+        self.assertEqual(code, 0)
+        self.assertIn("Commands: 2", out)
+
+    def test_capture_records_output_and_promotes_it_into_session(self) -> None:
+        code, out, err = self.run_cli(
+            [
+                "capture",
+                sys.executable,
+                "-c",
+                "import sys; print('prebuffer hello'); print('prebuffer err', file=sys.stderr)",
+            ]
+        )
+        self.assertEqual(code, 0)
+        self.assertIn("prebuffer hello", out)
+        self.assertIn("prebuffer err", err)
+
+        code, out, _ = self.run_cli(["start", "capture import", "--include-last", "40m"])
+        self.assertEqual(code, 0)
+        self.assertIn("Imported buffered commands: 1", out)
+
+        sessions_root = self.workspace / ".fixtape-home" / "sessions"
+        session_dir = next(sessions_root.iterdir())
+        events = (session_dir / "events.jsonl").read_text(encoding="utf-8")
+        self.assertIn("pre_session_imported", events)
+        self.assertIn("prebuffer hello", (session_dir / "commands" / "command_001_stdout.txt").read_text(encoding="utf-8"))
+        self.assertIn("prebuffer err", (session_dir / "commands" / "command_001_stderr.txt").read_text(encoding="utf-8"))
+
+    def test_finish_can_include_recent_buffer_after_late_start(self) -> None:
+        code, _, _ = self.run_cli(
+            [
+                "record-shell-command",
+                "--command",
+                "python replay.py --case duplicate",
+                "--exit-code",
+                "1",
+                "--shell",
+                "powershell",
+                "--cwd",
+                str(self.workspace),
+            ]
+        )
+        self.assertEqual(code, 0)
+
+        code, _, _ = self.run_cli(["start", "finish import"])
+        self.assertEqual(code, 0)
+        code, out, _ = self.run_cli(["finish", "--verdict", "fixed", "--summary", "done", "--include-last", "40m"])
+        self.assertEqual(code, 0)
+        self.assertIn("Included buffered commands from the last 40m.", out)
+
+        code, out, _ = self.run_cli(["search", "replay.py", "--field", "commands"])
+        self.assertEqual(code, 0)
+        self.assertIn("finish import", out)
 
     def test_reindex_rebuilds_cross_session_index(self) -> None:
         code, _, _ = self.run_cli(["start", "index me"])

@@ -64,15 +64,18 @@ At the end of a debugging session, FixTape can generate:
 ## Command set
 
 Current commands:
-- `fixtape start <title>`
+- `fixtape start <title> [--include-last 40m]`
 - `fixtape status`
+- `fixtape doctor [--window 40m]`
+- `fixtape promote --include-last 40m`
 - `fixtape note "<text>"`
 - `fixtape link <ticket|issue|commit|pr|branch|doc|other|current-commit> [value]`
 - `fixtape refs [session-id]`
 - `fixtape run [--repro] <command...>`
+- `fixtape capture [--repro] <command...>`
 - `fixtape attach <kind> <path>`
 - `fixtape snapshot`
-- `fixtape finish --verdict <fixed|unresolved|handoff|needs-more-data>`
+- `fixtape finish --verdict <fixed|unresolved|handoff|needs-more-data> [--include-last 40m]`
 - `fixtape list`
 - `fixtape show [session-id]`
 - `fixtape digest [session-id]`
@@ -86,7 +89,7 @@ Current commands:
 - `fixtape playbooks`
 - `fixtape recipes`
 - `fixtape triage <query>`
-- `fixtape kickoff <title> --query <query>`
+- `fixtape kickoff <title> --query <query> [--include-last 40m]`
 - `fixtape search <query>`
 - `fixtape reindex`
 - `fixtape shell-init <powershell|bash|zsh|sh>`
@@ -103,14 +106,14 @@ python -m pip install -e .
 ### 2. Start a session
 
 ```powershell
-fixtape start "billing webhook duplicates charges" --tag incident --tag backend
+fixtape start "billing webhook duplicates charges" --tag incident --tag backend --include-last 40m
 ```
 
 ### 3. Capture the investigation
 
 ```powershell
 fixtape note "Can reproduce only with retry header present"
-fixtape run pytest tests/test_webhook.py -k duplicate
+fixtape capture pytest tests/test_webhook.py -k duplicate
 fixtape attach trace traceback.txt
 fixtape attach payload failing_event.json
 fixtape snapshot
@@ -120,8 +123,8 @@ fixtape snapshot
 
 ```powershell
 fixtape note "Root cause was idempotency key ignored on retry path"
-fixtape run --repro python scripts/replay_event.py failing_event.json
-fixtape finish --verdict fixed --summary "Retry path now respects idempotency keys" --ref ticket:PAY-123 --ref commit:abc123
+fixtape capture --repro python scripts/replay_event.py failing_event.json
+fixtape finish --verdict fixed --summary "Retry path now respects idempotency keys" --ref ticket:PAY-123 --ref commit:abc123 --include-last 20m
 ```
 
 ### 5. Revisit the result
@@ -140,7 +143,9 @@ fixtape outcomes
 fixtape playbooks
 fixtape recipes
 fixtape triage "retry storm payments"
-fixtape kickoff "payments retry gamma" --query "retry storm payments"
+fixtape kickoff "payments retry gamma" --query "retry storm payments" --include-last 40m
+fixtape doctor --window 40m
+fixtape promote --include-last 40m
 fixtape search retry
 fixtape link ticket PAY-123
 fixtape export .\fixtape-session.zip
@@ -178,6 +183,12 @@ FixTape can now also emit repeatable guidance from history:
 FixTape can now also use that history at incident start:
 - `fixtape triage` suggests the best historical starting point for a current signal
 - `fixtape kickoff` starts a new session and writes an incident kickoff bundle with the best known first move
+
+FixTape now also has a zero-touch flight recorder:
+- shell hooks can keep buffering the last commands even before a session exists
+- `fixtape doctor` shows what is currently buffered
+- `--include-last 40m` can promote buffered command history into `start`, `kickoff`, `promote`, or `finish`
+- `fixtape capture` records full stdout/stderr into the buffer even outside an active session
 
 Refs can now be linked directly after or during a session:
 
@@ -224,6 +235,7 @@ ft pytest tests/test_billing.py -k duplicate
 ftr python scripts/replay_invoice.py failing_invoice.json
 ftnote "Root cause likely sits in retry path"
 ftsnap
+ftdoctor
 ```
 
 POSIX shells:
@@ -234,45 +246,57 @@ ft pytest tests/test_billing.py -k duplicate
 ftr python scripts/replay_invoice.py failing_invoice.json
 ftnote "Root cause likely sits in retry path"
 ftsnap
+ftdoctor
 ```
 
-## Low-friction hook mode
+`ft` and `ftr` now go through `fixtape capture`, so they work both inside and outside an active session while preserving full stdout/stderr output.
 
-If you want lighter capture without typing `fixtape run` every time, FixTape can also install shell hooks.
+## Zero-touch flight recorder
+
+If you want lighter capture without remembering `fixtape start` first, FixTape can now keep a local pre-session flight recorder.
 
 PowerShell:
 
 ```powershell
 Invoke-Expression (& fixtape shell-init powershell --mode all)
-ftenable
 ```
 
 Bash:
 
 ```bash
 eval "$(fixtape shell-init bash --mode all)"
-ftenable
 ```
 
-What hook mode captures:
+What the flight recorder captures automatically:
 - command line
 - exit code
 - current working directory
+- shell source
+- recent command history before a session exists
 
-What it does not capture:
-- stdout/stderr output files
-- exact subprocess timing
+What `fixtape capture` adds on top:
+- full stdout/stderr files in the recorder
 - reproducible command marking
+- promotion into the active session if one exists
 
-Use `fixtape run` when you want full-fidelity capture.
-Use hook mode when you want lower-friction session memory.
+Suggested workflow:
+
+```powershell
+Invoke-Expression (& fixtape shell-init powershell --mode all)
+pytest tests/test_billing.py -k duplicate
+python scripts/replay_invoice.py failing_invoice.json
+fixtape doctor --window 40m
+fixtape start "billing retry storm" --include-last 40m
+```
+
+That gives you the low-friction "black box" path first, then turns the last part of the investigation into a proper FixTape session once you decide the incident matters.
 
 ## Example session flow
 
 ```powershell
-fixtape start "billing webhook duplicates charges"
+fixtape start "billing webhook duplicates charges" --include-last 40m
 fixtape note "Can reproduce only with retry header present"
-fixtape run pytest tests/test_webhook.py -k duplicate
+fixtape capture pytest tests/test_webhook.py -k duplicate
 fixtape attach trace traceback.txt
 fixtape attach payload failing_event.json
 fixtape snapshot
@@ -280,8 +304,8 @@ fixtape snapshot
 # fix the bug
 
 fixtape note "Root cause was idempotency key ignored on retry path"
-fixtape run --repro python scripts/replay_event.py failing_event.json
-fixtape finish --verdict fixed --summary "Retry path now respects idempotency keys"
+fixtape capture --repro python scripts/replay_event.py failing_event.json
+fixtape finish --verdict fixed --summary "Retry path now respects idempotency keys" --include-last 20m
 fixtape show
 ```
 
@@ -315,6 +339,9 @@ FixTape stores sessions locally inside:
 ```text
 .fixtape/
   active-session.json
+  flight-recorder/
+    buffer.jsonl
+    outputs/
   last-session.json
   sessions/
     <session-id>/
@@ -335,7 +362,8 @@ If FixTape runs inside a Git repository, it stores data at the repository root. 
 ## Design principles
 
 - Local-first: no backend, no sync requirement, inspectable files.
-- Explicit capture: the MVP captures commands run through `fixtape run`.
+- Zero-touch first: shell hooks can keep a rolling pre-session memory before you open a formal FixTape session.
+- Explicit capture when needed: `fixtape capture` stores full stdout/stderr and `fixtape run` stays available for session-scoped command capture.
 - Git-aware: snapshots include branch, commit, dirty state, and diffs.
 - File-based artifacts: every session is portable and easy to inspect.
 - Useful without AI: the generated package should already help a human engineer.

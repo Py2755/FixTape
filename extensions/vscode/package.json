@@ -2,7 +2,7 @@
   "name": "fixtape-vscode",
   "displayName": "FixTape",
   "description": "Browse active and recent FixTape sessions from inside VS Code.",
-  "version": "0.1.16",
+  "version": "0.2.0",
   "publisher": "Py2755",
   "license": "MIT",
   "engines": {

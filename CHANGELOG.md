@@ -2,6 +2,20 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.2.0] - 2026-03-24
+
+### Added
+- Zero-touch flight recorder under `.fixtape/flight-recorder` with rolling pre-session command memory.
+- `fixtape doctor` for inspecting buffered command history and recorder pressure.
+- `fixtape promote --include-last ...` for importing recent buffered commands into the active session.
+- `fixtape capture` for full stdout/stderr capture even when no FixTape session is active yet.
+- `--include-last ...` support on `start`, `kickoff`, and `finish`.
+
+### Improved
+- Shell helpers now default to an always-on recorder flow after `fixtape shell-init`.
+- Debugging can start as a low-friction black box and be promoted into a formal FixTape session later.
+- Captured command history now survives the common "I forgot to start FixTape first" failure mode.
+
 ## [0.1.16] - 2026-03-24
 
 ### Added

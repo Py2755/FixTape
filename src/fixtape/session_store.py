@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import platform
 import re
+import shutil
 import zipfile
 import json
 from pathlib import Path
@@ -19,7 +20,8 @@ from fixtape.generators.digest import build_session_digest, normalize_digest_buc
 from fixtape.git_tools import collect_git_state, write_diff_snapshots
 from fixtape.indexer import build_session_index_entry, load_index, write_index
 from fixtape.models import SessionRecord
-from fixtape.utils import detect_shell, ensure_dir, iso_now, read_json, slugify, timestamp_slug, write_json
+from fixtape.pre_session import PreSessionRecorder
+from fixtape.utils import detect_shell, ensure_dir, iso_now, parse_time_window, read_json, slugify, timestamp_slug, write_json
 
 
 class FixTapeError(RuntimeError):
@@ -42,8 +44,9 @@ class SessionStore:
         self.last_pointer_path = last_session_pointer(self.cwd)
         self.index_path = session_index_path(self.cwd)
         self.sessions_dir = sessions_root(self.cwd)
+        self.recorder = PreSessionRecorder(self.cwd)
 
-    def start_session(self, title: str, tags: list[str] | None = None) -> Path:
+    def start_session(self, title: str, tags: list[str] | None = None, include_last: str | None = None) -> Path:
         if self.pointer_path.exists():
             raise ActiveSessionExistsError("An active FixTape session already exists.")
 
@@ -188,8 +191,12 @@ class SessionStore:
 
     def add_command_event(self, event: dict[str, Any]) -> None:
         _, session_dir = self.load_session()
+        self.add_command_event_to_session_dir(session_dir, event)
+
+    def add_command_event_to_session_dir(self, session_dir: Path, event: dict[str, Any], sync_index: bool = True) -> None:
         append_event(session_dir / "events.jsonl", event)
-        self._sync_session_index(session_dir)
+        if sync_index:
+            self._sync_session_index(session_dir)
 
     def add_artifact_event(self, event: dict[str, Any]) -> None:
         _, session_dir = self.load_session()
@@ -227,8 +234,12 @@ class SessionStore:
         verdict: str,
         summary: str | None = None,
         refs: list[str] | None = None,
+        include_last: str | None = None,
     ) -> tuple[dict[str, Any], Path, list[dict[str, Any]]]:
         session, session_dir = self.load_session()
+        if include_last:
+            self.include_recent_buffer(session_dir, include_last, source="finish")
+            session, _ = self.load_session_from_dir(session_dir)
         final_git_state = collect_git_state(self.cwd)
         session["finished_at"] = iso_now()
         session["verdict"] = verdict
@@ -254,6 +265,118 @@ class SessionStore:
             self.pointer_path.unlink()
         self._sync_session_index(session_dir)
         return session, session_dir, events
+
+    def recorder_status(self, window: str | None = None) -> dict[str, Any]:
+        try:
+            return self.recorder.status(window=window)
+        except ValueError as exc:
+            raise FixTapeError(str(exc)) from exc
+
+    def record_pre_session_command(
+        self,
+        *,
+        command: str,
+        exit_code: int,
+        shell: str,
+        cwd: str | None,
+        timestamp: str | None = None,
+        duration_ms: float | None = None,
+        args: list[str] | None = None,
+        repro: bool = False,
+        stdout_text: str | None = None,
+        stderr_text: str | None = None,
+        captured_via: str = "shell_hook",
+    ) -> dict[str, Any]:
+        event = self.recorder.record_command(
+            command=command,
+            exit_code=exit_code,
+            shell=shell,
+            cwd=cwd,
+            timestamp=timestamp,
+            duration_ms=duration_ms,
+            args=args,
+            repro=repro,
+            stdout_text=stdout_text,
+            stderr_text=stderr_text,
+            captured_via=captured_via,
+        )
+        return event
+
+    def include_recent_buffer(self, session_dir: Path, window: str, source: str = "promote") -> dict[str, Any]:
+        try:
+            parse_time_window(window)
+        except ValueError as exc:
+            raise FixTapeError(str(exc)) from exc
+        recent_entries = self.recorder.recent_entries(window=window)
+        return self.promote_buffer_entries(session_dir, recent_entries, source=source, window=window)
+
+    def promote_buffer_entry(self, session_dir: Path, entry: dict[str, Any], source: str = "capture") -> dict[str, Any]:
+        return self.promote_buffer_entries(session_dir, [entry], source=source)
+
+    def promote_buffer_entries(
+        self,
+        session_dir: Path,
+        entries: list[dict[str, Any]],
+        source: str = "promote",
+        window: str | None = None,
+    ) -> dict[str, Any]:
+        session_events = self.load_events(session_dir)
+        existing_ids = {
+            str(event.get("pre_session_id"))
+            for event in session_events
+            if event.get("type") == "command_ran" and event.get("pre_session_id")
+        }
+        imported_events: list[dict[str, Any]] = []
+        imported_ids: list[str] = []
+        counts = self.session_counts(session_dir)
+        next_index = counts["commands"] + 1
+        for entry in entries:
+            pre_session_id = str(entry.get("pre_session_id") or "")
+            if not pre_session_id or pre_session_id in existing_ids:
+                continue
+            event = self._materialize_pre_session_command(session_dir, entry, next_index)
+            next_index += 1
+            existing_ids.add(pre_session_id)
+            imported_ids.append(pre_session_id)
+            imported_events.append(event)
+
+        for event in imported_events:
+            self.add_command_event_to_session_dir(session_dir, event, sync_index=False)
+
+        if imported_ids and source not in {"shell_hook", "capture"}:
+            payload: dict[str, Any] = {
+                "type": "pre_session_imported",
+                "timestamp": iso_now(),
+                "source": source,
+                "count": len(imported_ids),
+                "pre_session_ids": imported_ids,
+            }
+            if window:
+                payload["window"] = window
+            append_event(session_dir / "events.jsonl", payload)
+        self._sync_session_index(session_dir)
+        return {"count": len(imported_ids), "window": window, "source": source}
+
+    def _materialize_pre_session_command(self, session_dir: Path, entry: dict[str, Any], index: int) -> dict[str, Any]:
+        commands_dir = session_dir / "commands"
+        stdout_path = self._copy_buffer_output(entry.get("stdout_file"), commands_dir / f"command_{index:03d}_stdout.txt")
+        stderr_path = self._copy_buffer_output(entry.get("stderr_file"), commands_dir / f"command_{index:03d}_stderr.txt")
+        return {
+            **entry,
+            "stdout_file": str(stdout_path) if stdout_path else None,
+            "stderr_file": str(stderr_path) if stderr_path else None,
+            "promoted_from_buffer": True,
+        }
+
+    def _copy_buffer_output(self, source_path: Any, destination: Path) -> Path | None:
+        if not source_path:
+            return None
+        source = Path(str(source_path))
+        if not source.exists():
+            return None
+        ensure_dir(destination.parent)
+        shutil.copy2(source, destination)
+        return destination
 
     def export_session(self, destination: Path) -> Path:
         try:

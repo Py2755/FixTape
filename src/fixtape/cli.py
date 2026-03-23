@@ -13,7 +13,7 @@ from fixtape.generators.repro import generate_repro_script
 from fixtape.generators.summary import generate_summary
 from fixtape.generators.todo import build_regression_draft, generate_regression_todo
 from fixtape.generators.handoff import generate_handoff
-from fixtape.runner import run_command
+from fixtape.runner import capture_command, run_command
 from fixtape.shell_integration import render_shell_init
 from fixtape.session_store import (
     ActiveSessionExistsError,
@@ -21,7 +21,7 @@ from fixtape.session_store import (
     NoActiveSessionError,
     SessionStore,
 )
-from fixtape.utils import iso_now, write_json
+from fixtape.utils import format_bytes, iso_now, write_json
 
 VALID_VERDICTS = {"fixed", "unresolved", "handoff", "needs-more-data"}
 VALID_ARTIFACT_KINDS = {"trace", "log", "payload", "query", "screenshot", "config", "note", "other"}
@@ -36,6 +36,7 @@ def build_parser() -> argparse.ArgumentParser:
     start_parser = subparsers.add_parser("start", help="Start a new FixTape session.")
     start_parser.add_argument("title", help="Short title for the debugging session.")
     start_parser.add_argument("--tag", action="append", default=[], dest="tags", help="Optional tag.")
+    start_parser.add_argument("--include-last", default=None, help="Import buffered pre-session commands such as 40m or 90s.")
 
     list_parser = subparsers.add_parser("list", help="List recent FixTape sessions.")
     list_parser.add_argument("--limit", type=int, default=10, help="Maximum number of sessions to show.")
@@ -91,6 +92,7 @@ def build_parser() -> argparse.ArgumentParser:
     kickoff_parser.add_argument("title", help="Title for the new FixTape session.")
     kickoff_parser.add_argument("--query", required=True, help="Current incident signal used for triage.")
     kickoff_parser.add_argument("--tag", action="append", default=[], dest="tags", help="Optional tag.")
+    kickoff_parser.add_argument("--include-last", default=None, help="Import buffered pre-session commands such as 40m or 90s.")
 
     search_parser = subparsers.add_parser("search", help="Search across recent FixTape sessions.")
     search_parser.add_argument("query", help="Text query to search for.")
@@ -114,6 +116,12 @@ def build_parser() -> argparse.ArgumentParser:
 
     subparsers.add_parser("status", help="Show active session status.")
 
+    doctor_parser = subparsers.add_parser("doctor", help="Show zero-touch flight-recorder status and recent buffered commands.")
+    doctor_parser.add_argument("--window", default=None, help="Optional time window such as 40m or 2h.")
+
+    promote_parser = subparsers.add_parser("promote", help="Import recent pre-session commands into the active session.")
+    promote_parser.add_argument("--include-last", required=True, help="Import buffered commands such as 40m or 90s.")
+
     note_parser = subparsers.add_parser("note", help="Add a note to the active session.")
     note_parser.add_argument("text", help="Time-stamped debugging note.")
 
@@ -128,6 +136,10 @@ def build_parser() -> argparse.ArgumentParser:
     run_parser.add_argument("--repro", action="store_true", help="Mark the command as reproducible.")
     run_parser.add_argument("cmd", nargs=argparse.REMAINDER, help="Command to execute.")
 
+    capture_parser = subparsers.add_parser("capture", help="Run a command and record it in the pre-session flight recorder.")
+    capture_parser.add_argument("--repro", action="store_true", help="Mark the command as reproducible.")
+    capture_parser.add_argument("cmd", nargs=argparse.REMAINDER, help="Command to execute.")
+
     attach_parser = subparsers.add_parser("attach", help="Attach an evidence file to the active session.")
     attach_parser.add_argument("kind", help="Artifact kind.")
     attach_parser.add_argument("path", help="Path to the file to attach.")
@@ -138,6 +150,7 @@ def build_parser() -> argparse.ArgumentParser:
     finish_parser.add_argument("--verdict", required=True, choices=sorted(VALID_VERDICTS))
     finish_parser.add_argument("--summary", default=None, help="Optional closing summary.")
     finish_parser.add_argument("--ref", action="append", default=[], dest="refs", help="Related ref such as ticket:PAY-123 or commit:abc123.")
+    finish_parser.add_argument("--include-last", default=None, help="Import buffered pre-session commands such as 40m or 90s before finishing.")
 
     export_parser = subparsers.add_parser("export", help="Zip the active session to a destination file.")
     export_parser.add_argument("destination", help="Destination zip path.")
@@ -147,6 +160,7 @@ def build_parser() -> argparse.ArgumentParser:
     record_parser.add_argument("--exit-code", required=True, type=int, help=argparse.SUPPRESS)
     record_parser.add_argument("--shell", default="unknown", help=argparse.SUPPRESS)
     record_parser.add_argument("--cwd", default=None, help=argparse.SUPPRESS)
+    record_parser.add_argument("--captured-via", default="shell_hook", help=argparse.SUPPRESS)
 
     return parser
 
@@ -160,9 +174,12 @@ def _print(msg: str) -> None:
 
 
 def handle_start(store: SessionStore, args: argparse.Namespace) -> int:
-    session_dir = store.start_session(args.title, args.tags)
+    session_dir = store.start_session(args.title, args.tags, include_last=args.include_last)
     _print(f"Started FixTape session: {session_dir.name}")
     _print(f"Session directory: {session_dir}")
+    if args.include_last:
+        import_result = store.include_recent_buffer(session_dir, args.include_last, source="start")
+        _print(f"Imported buffered commands: {import_result['count']} from the last {args.include_last}")
     return 0
 
 
@@ -431,7 +448,7 @@ def handle_triage(store: SessionStore, args: argparse.Namespace) -> int:
 
 
 def handle_kickoff(store: SessionStore, args: argparse.Namespace) -> int:
-    session_dir = store.start_session(args.title, args.tags)
+    session_dir = store.start_session(args.title, args.tags, include_last=args.include_last)
     session, session_dir = store.load_session_from_dir(session_dir)
     generated_dir = session_dir / "generated"
     triage_payload = store.triage(args.query, limit=3)
@@ -453,6 +470,9 @@ def handle_kickoff(store: SessionStore, args: argparse.Namespace) -> int:
     generate_incident_kickoff(generated_dir / "incident-kickoff.md", kickoff_payload)
     _print(f"Started FixTape session: {session_dir.name}")
     _print(f"Kickoff bundle: {generated_dir / 'incident-kickoff.md'}")
+    if args.include_last:
+        imported = store.include_recent_buffer(session_dir, args.include_last, source="kickoff")
+        _print(f"Imported buffered commands: {imported['count']} from the last {args.include_last}")
     _print(f"Recommended first move: {triage_payload['starter_step']}")
     return 0
 
@@ -480,29 +500,18 @@ def handle_shell_init(store: SessionStore, args: argparse.Namespace) -> int:
 
 
 def handle_record_shell_command(store: SessionStore, args: argparse.Namespace) -> int:
+    event = store.record_pre_session_command(
+        command=args.command_text,
+        exit_code=args.exit_code,
+        shell=args.shell,
+        cwd=args.cwd,
+        captured_via=args.captured_via,
+    )
     try:
-        store.load_session()
+        _, session_dir = store.load_session()
     except NoActiveSessionError:
         return 0
-
-    store.add_command_event(
-        {
-            "type": "command_ran",
-            "timestamp": iso_now(),
-            "duration_ms": None,
-            "repro": False,
-            "command": args.command_text,
-            "args": None,
-            "exit_code": args.exit_code,
-            "stdout_file": None,
-            "stderr_file": None,
-            "stdout_sha256": None,
-            "stderr_sha256": None,
-            "captured_via": "shell_hook",
-            "shell": args.shell,
-            "cwd": args.cwd,
-        }
-    )
+    store.promote_buffer_entry(session_dir, event, source="shell_hook")
     return 0
 
 
@@ -522,6 +531,33 @@ def handle_status(store: SessionStore, args: argparse.Namespace) -> int:
         state = session["initial_git_state"]
         _print(f"Git branch: {state.get('branch') or 'unknown'}")
         _print(f"Git dirty: {state.get('dirty')}")
+    return 0
+
+
+def handle_doctor(store: SessionStore, args: argparse.Namespace) -> int:
+    status = store.recorder_status(window=args.window)
+    _print("Flight recorder:")
+    _print(f"Retention window: {status['retention_window']}")
+    _print(f"Buffered commands: {status['entry_count']}")
+    _print(f"Output bytes: {status.get('output_bytes_human') or format_bytes(status['output_bytes'])}")
+    _print(f"Buffer budget: {status.get('max_bytes_human') or format_bytes(status['max_bytes'])}")
+    if status["newest_timestamp"]:
+        _print(f"Newest command: {status['newest_timestamp']}")
+    if not status["recent"]:
+        _print("Recent commands: none")
+        return 0
+    _print("Recent commands:")
+    for item in status["recent"]:
+        marker = "output" if item["has_output"] else "history"
+        _print(f"  {item['timestamp']} | exit={item['exit_code']} | {marker} | {item['command']}")
+    return 0
+
+
+def handle_promote(store: SessionStore, args: argparse.Namespace) -> int:
+    session, session_dir = store.load_session()
+    result = store.include_recent_buffer(session_dir, args.include_last, source="promote")
+    _print(f"Promoted buffered commands into session: {session['id']}")
+    _print(f"Imported: {result['count']} from the last {args.include_last}")
     return 0
 
 
@@ -588,6 +624,42 @@ def handle_run(store: SessionStore, args: argparse.Namespace) -> int:
     return int(result["exit_code"])
 
 
+def handle_capture(store: SessionStore, args: argparse.Namespace) -> int:
+    cmd = _command_args(args.cmd)
+    if not cmd:
+        raise FixTapeError("No command provided to fixtape capture.")
+
+    started = time.perf_counter()
+    started_at = iso_now()
+    result = capture_command(cmd, store.cwd)
+    duration_ms = round((time.perf_counter() - started) * 1000, 2)
+    event = store.record_pre_session_command(
+        command=str(result["command"]),
+        exit_code=int(result["exit_code"]),
+        shell="fixtape",
+        cwd=str(store.cwd),
+        timestamp=started_at,
+        duration_ms=duration_ms,
+        args=list(cmd),
+        repro=bool(args.repro),
+        stdout_text=str(result["stdout_text"]),
+        stderr_text=str(result["stderr_text"]),
+        captured_via="fixtape_capture",
+    )
+    try:
+        _, session_dir = store.load_session()
+    except NoActiveSessionError:
+        session_dir = None
+    if session_dir is not None:
+        store.promote_buffer_entry(session_dir, event, source="capture")
+    if result["stdout_text"]:
+        sys.stdout.write(str(result["stdout_text"]))
+    if result["stderr_text"]:
+        sys.stderr.write(str(result["stderr_text"]))
+    _print(f"Recorded command with exit code {result['exit_code']}.")
+    return int(result["exit_code"])
+
+
 def handle_attach(store: SessionStore, args: argparse.Namespace) -> int:
     kind = args.kind.lower()
     if kind not in VALID_ARTIFACT_KINDS:
@@ -612,7 +684,7 @@ def handle_snapshot(store: SessionStore, args: argparse.Namespace) -> int:
 
 
 def handle_finish(store: SessionStore, args: argparse.Namespace) -> int:
-    session, session_dir, events = store.finalize_session(args.verdict, args.summary, args.refs)
+    session, session_dir, events = store.finalize_session(args.verdict, args.summary, args.refs, args.include_last)
     generated_dir = session_dir / "generated"
     parsed_artifacts = build_parsed_artifacts(events)
     write_json(generated_dir / "parsed-artifacts.json", parsed_artifacts)
@@ -629,6 +701,8 @@ def handle_finish(store: SessionStore, args: argparse.Namespace) -> int:
     store.refresh_session_index(session_dir)
     _print(f"Session finished: {session_dir.name}")
     _print(f"Generated summary: {generated_dir / 'debug-summary.md'}")
+    if args.include_last:
+        _print(f"Included buffered commands from the last {args.include_last}.")
     return 0
 
 
@@ -664,10 +738,13 @@ def main(argv: list[str] | None = None) -> int:
         "shell-init": handle_shell_init,
         "record-shell-command": handle_record_shell_command,
         "status": handle_status,
+        "doctor": handle_doctor,
+        "promote": handle_promote,
         "note": handle_note,
         "link": handle_link,
         "refs": handle_refs,
         "run": handle_run,
+        "capture": handle_capture,
         "attach": handle_attach,
         "snapshot": handle_snapshot,
         "finish": handle_finish,

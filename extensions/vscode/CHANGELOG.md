@@ -1,5 +1,9 @@
 # Change Log
 
+## 0.2.0
+
+- Aligned extension version metadata with the zero-touch flight recorder release.
+
 ## 0.1.16
 
 - Aligned extension version metadata with the new FixTape release.
