@@ -28,5 +28,9 @@ def last_session_pointer(cwd: Path | None = None) -> Path:
     return resolve_store_root(cwd) / "last-session.json"
 
 
+def session_index_path(cwd: Path | None = None) -> Path:
+    return resolve_store_root(cwd) / "session-index.json"
+
+
 def sessions_root(cwd: Path | None = None) -> Path:
     return ensure_dir(resolve_store_root(cwd) / "sessions")

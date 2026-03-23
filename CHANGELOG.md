@@ -2,6 +2,15 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.1.7] - 2026-03-24
+
+### Added
+- Cross-session indexing via `.fixtape/session-index.json`.
+- `fixtape reindex` to rebuild the local session index.
+
+### Improved
+- `fixtape list` and `fixtape search` now run on a maintained session index rather than scanning all session files on each call.
+
 ## [0.1.6] - 2026-03-24
 
 ### Added

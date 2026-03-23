@@ -36,9 +36,11 @@ For full stdout/stderr capture, keep using `fixtape run`.
 ```powershell
 fixtape search "retry idempotency"
 fixtape search "pytest duplicate" --field commands
+fixtape reindex
 ```
 
 Search results are ranked, and the CLI prints compact snippets with the field that matched.
+The local cross-session index is stored in `.fixtape/session-index.json`.
 
 ## Run a full session
 

@@ -36,6 +36,8 @@ def build_parser() -> argparse.ArgumentParser:
     list_parser = subparsers.add_parser("list", help="List recent FixTape sessions.")
     list_parser.add_argument("--limit", type=int, default=10, help="Maximum number of sessions to show.")
 
+    subparsers.add_parser("reindex", help="Rebuild the cross-session FixTape index.")
+
     show_parser = subparsers.add_parser("show", help="Show a finished session by ID or the last session.")
     show_parser.add_argument("session_id", nargs="?", default=None, help="Optional session ID.")
 
@@ -112,8 +114,14 @@ def handle_list(store: SessionStore, args: argparse.Namespace) -> int:
         _print("No FixTape sessions found yet.")
         return 0
     for session in sessions:
-        verdict = session.get("verdict") or "active"
+        verdict = "active" if session.get("is_active") else (session.get("verdict") or "n/a")
         _print(f"{session['id']} | {session['created_at']} | {verdict} | {session['title']}")
+    return 0
+
+
+def handle_reindex(store: SessionStore, args: argparse.Namespace) -> int:
+    count = store.reindex_sessions()
+    _print(f"Rebuilt FixTape index for {count} session(s).")
     return 0
 
 
@@ -289,6 +297,7 @@ def main(argv: list[str] | None = None) -> int:
     handlers = {
         "start": handle_start,
         "list": handle_list,
+        "reindex": handle_reindex,
         "show": handle_show,
         "search": handle_search,
         "shell-init": handle_shell_init,

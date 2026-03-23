@@ -7,9 +7,16 @@ import json
 from pathlib import Path
 from typing import Any
 
-from fixtape.config import active_session_pointer, last_session_pointer, resolve_workspace_root, sessions_root
+from fixtape.config import (
+    active_session_pointer,
+    last_session_pointer,
+    resolve_workspace_root,
+    session_index_path,
+    sessions_root,
+)
 from fixtape.events import append_event, load_events
 from fixtape.git_tools import collect_git_state, write_diff_snapshots
+from fixtape.indexer import build_session_index_entry, load_index, write_index
 from fixtape.models import SessionRecord
 from fixtape.utils import detect_shell, ensure_dir, iso_now, read_json, slugify, timestamp_slug, write_json
 
@@ -32,6 +39,7 @@ class SessionStore:
         self.workspace_root = resolve_workspace_root(self.cwd)
         self.pointer_path = active_session_pointer(self.cwd)
         self.last_pointer_path = last_session_pointer(self.cwd)
+        self.index_path = session_index_path(self.cwd)
         self.sessions_dir = sessions_root(self.cwd)
 
     def start_session(self, title: str, tags: list[str] | None = None) -> Path:
@@ -73,6 +81,7 @@ class SessionStore:
                 "tags": tags or [],
             },
         )
+        self._sync_session_index(session_dir)
         return session_dir
 
     def get_active_session_dir(self) -> Path:
@@ -137,14 +146,17 @@ class SessionStore:
                 "text": text,
             },
         )
+        self._sync_session_index(session_dir)
 
     def add_command_event(self, event: dict[str, Any]) -> None:
         _, session_dir = self.load_session()
         append_event(session_dir / "events.jsonl", event)
+        self._sync_session_index(session_dir)
 
     def add_artifact_event(self, event: dict[str, Any]) -> None:
         _, session_dir = self.load_session()
         append_event(session_dir / "events.jsonl", event)
+        self._sync_session_index(session_dir)
 
     def create_snapshot(self) -> dict[str, Any]:
         _, session_dir = self.load_session()
@@ -169,6 +181,7 @@ class SessionStore:
             **git_state.to_dict(),
         }
         append_event(session_dir / "events.jsonl", event)
+        self._sync_session_index(session_dir)
         return event
 
     def finalize_session(
@@ -201,6 +214,7 @@ class SessionStore:
         write_json(self.last_pointer_path, {"session_id": session["id"], "session_dir": str(session_dir)})
         if self.pointer_path.exists():
             self.pointer_path.unlink()
+        self._sync_session_index(session_dir)
         return session, session_dir, events
 
     def export_session(self, destination: Path) -> Path:
@@ -249,12 +263,10 @@ class SessionStore:
         return destination
 
     def list_sessions(self, limit: int = 10) -> list[dict[str, Any]]:
-        sessions: list[dict[str, Any]] = []
-        for session_file in self.sessions_dir.glob("*/session.json"):
-            session = read_json(session_file)
-            if session:
-                sessions.append(session)
-        sessions.sort(key=lambda item: item.get("created_at", ""), reverse=True)
+        sessions = self._load_indexed_sessions()
+        if not sessions:
+            self.reindex_sessions()
+            sessions = self._load_indexed_sessions()
         return sessions[:limit]
 
     def search_sessions(self, query: str, fields: set[str] | None = None, limit: int = 10) -> list[dict[str, Any]]:
@@ -265,16 +277,18 @@ class SessionStore:
         query_terms = [term for term in re.split(r"\s+", needle) if term]
 
         matches: list[dict[str, Any]] = []
-        for session in self.list_sessions(limit=10_000):
-            session_dir = self.get_session_dir(session["id"])
-            events = self.load_events(session_dir)
+        indexed_sessions = self._load_indexed_sessions()
+        if not indexed_sessions:
+            self.reindex_sessions()
+            indexed_sessions = self._load_indexed_sessions()
 
+        for session in indexed_sessions:
             hit_fields: list[str] = []
             snippets: list[str] = []
             score = 0
 
             title = str(session.get("title") or "")
-            summary = str(session.get("final_summary") or "")
+            summary = str(session.get("summary") or "")
             if "title" in active_fields:
                 field_score = self._score_text_match(title, needle, query_terms, base_weight=80)
                 if field_score:
@@ -288,23 +302,22 @@ class SessionStore:
                     snippets.append(self._make_snippet("summary", summary, needle))
                     score += field_score
 
-            for event in events:
-                if event["type"] == "note_added" and "notes" in active_fields:
-                    text = str(event.get("text") or "")
+            for text in session.get("notes", []):
+                if "notes" in active_fields:
                     field_score = self._score_text_match(text, needle, query_terms, base_weight=35)
                     if field_score:
                         hit_fields.append("note")
                         snippets.append(self._make_snippet("note", text, needle))
                         score += field_score
-                elif event["type"] == "command_ran" and "commands" in active_fields:
-                    command = str(event.get("command") or "")
+            for command in session.get("commands", []):
+                if "commands" in active_fields:
                     field_score = self._score_text_match(command, needle, query_terms, base_weight=25)
                     if field_score:
                         hit_fields.append("command")
                         snippets.append(self._make_snippet("command", command, needle))
                         score += field_score
-                elif event["type"] == "artifact_attached" and "artifacts" in active_fields:
-                    source_path = str(event.get("source_path") or "")
+            for source_path in session.get("artifacts", []):
+                if "artifacts" in active_fields:
                     field_score = self._score_text_match(source_path, needle, query_terms, base_weight=15)
                     if field_score:
                         hit_fields.append("artifact")
@@ -325,6 +338,43 @@ class SessionStore:
 
         matches.sort(key=lambda item: (item["score"], item["session"].get("created_at", "")), reverse=True)
         return matches[:limit]
+
+    def reindex_sessions(self) -> int:
+        entries: list[dict[str, Any]] = []
+        for session_file in self.sessions_dir.glob("*/session.json"):
+            session_dir = session_file.parent
+            session = read_json(session_file)
+            if not session:
+                continue
+            events = self.load_events(session_dir)
+            entry = build_session_index_entry(session, events, session_dir)
+            entries.append(entry)
+        write_index(self.index_path, entries)
+        return len(entries)
+
+    def _load_indexed_sessions(self) -> list[dict[str, Any]]:
+        index = load_index(self.index_path)
+        active_session_id = None
+        pointer = read_json(self.pointer_path)
+        if pointer:
+            active_session_id = pointer.get("session_id")
+
+        sessions: list[dict[str, Any]] = []
+        for entry in index.get("sessions", []):
+            session_copy = dict(entry)
+            session_copy["is_active"] = session_copy.get("id") == active_session_id
+            sessions.append(session_copy)
+        sessions.sort(key=lambda item: (item.get("is_active", False), item.get("created_at", "")), reverse=True)
+        return sessions
+
+    def _sync_session_index(self, session_dir: Path) -> None:
+        session, _ = self.load_session_from_dir(session_dir)
+        events = self.load_events(session_dir)
+        entry = build_session_index_entry(session, events, session_dir)
+        index = load_index(self.index_path)
+        entries = [item for item in index.get("sessions", []) if item.get("id") != session["id"]]
+        entries.append(entry)
+        write_index(self.index_path, entries)
 
     def _score_text_match(self, text: str, needle: str, query_terms: list[str], base_weight: int) -> int:
         haystack = text.lower()

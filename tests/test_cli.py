@@ -68,6 +68,7 @@ class FixTapeCliTests(unittest.TestCase):
         code, out, _ = self.run_cli(["list"])
         self.assertEqual(code, 0)
         self.assertIn("demo bug", out)
+        self.assertIn("fixed", out)
 
         code, out, _ = self.run_cli(["show"])
         self.assertEqual(code, 0)
@@ -103,8 +104,13 @@ class FixTapeCliTests(unittest.TestCase):
             self.assertIn("commit:abc123", metadata_text)
 
         sessions_root = self.workspace / ".fixtape-home" / "sessions"
+        index_path = self.workspace / ".fixtape-home" / "session-index.json"
         sessions = list(sessions_root.iterdir())
         self.assertEqual(len(sessions), 1)
+        self.assertTrue(index_path.exists())
+        index_payload = json.loads(index_path.read_text(encoding="utf-8"))
+        self.assertEqual(len(index_payload["sessions"]), 1)
+        self.assertEqual(index_payload["sessions"][0]["title"], "demo bug")
         generated = sessions[0] / "generated"
         self.assertTrue((generated / "debug-summary.md").exists())
         self.assertTrue((generated / "regression-test.todo.md").exists())
@@ -125,6 +131,24 @@ class FixTapeCliTests(unittest.TestCase):
         self.assertIn("function ft", out)
         self.assertIn("function ftr", out)
         self.assertIn("function ftenable", out)
+
+    def test_reindex_rebuilds_cross_session_index(self) -> None:
+        code, _, _ = self.run_cli(["start", "index me"])
+        self.assertEqual(code, 0)
+        code, _, _ = self.run_cli(["note", "cross session note"])
+        self.assertEqual(code, 0)
+        code, _, _ = self.run_cli(["finish", "--verdict", "fixed", "--summary", "done"])
+        self.assertEqual(code, 0)
+
+        index_path = self.workspace / ".fixtape-home" / "session-index.json"
+        if index_path.exists():
+            index_path.unlink()
+
+        code, out, _ = self.run_cli(["reindex"])
+        self.assertEqual(code, 0)
+        self.assertIn("Rebuilt FixTape index", out)
+        payload = json.loads(index_path.read_text(encoding="utf-8"))
+        self.assertEqual(payload["sessions"][0]["title"], "index me")
 
     def test_record_shell_command_is_searchable(self) -> None:
         code, _, _ = self.run_cli(["start", "hooked bug"])
