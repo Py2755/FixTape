@@ -215,10 +215,11 @@ class SessionStore:
         sessions.sort(key=lambda item: item.get("created_at", ""), reverse=True)
         return sessions[:limit]
 
-    def search_sessions(self, query: str, limit: int = 10) -> list[dict[str, Any]]:
+    def search_sessions(self, query: str, fields: set[str] | None = None, limit: int = 10) -> list[dict[str, Any]]:
         needle = query.strip().lower()
         if not needle:
             return []
+        active_fields = fields or {"title", "summary", "notes", "commands", "artifacts"}
 
         matches: list[dict[str, Any]] = []
         for session in self.list_sessions(limit=10_000):
@@ -230,25 +231,25 @@ class SessionStore:
 
             title = str(session.get("title") or "")
             summary = str(session.get("final_summary") or "")
-            if needle in title.lower():
+            if "title" in active_fields and needle in title.lower():
                 hit_fields.append("title")
                 snippets.append(title)
-            if summary and needle in summary.lower():
+            if "summary" in active_fields and summary and needle in summary.lower():
                 hit_fields.append("summary")
                 snippets.append(summary)
 
             for event in events:
-                if event["type"] == "note_added":
+                if event["type"] == "note_added" and "notes" in active_fields:
                     text = str(event.get("text") or "")
                     if needle in text.lower():
                         hit_fields.append("note")
                         snippets.append(text)
-                elif event["type"] == "command_ran":
+                elif event["type"] == "command_ran" and "commands" in active_fields:
                     command = str(event.get("command") or "")
                     if needle in command.lower():
                         hit_fields.append("command")
                         snippets.append(command)
-                elif event["type"] == "artifact_attached":
+                elif event["type"] == "artifact_attached" and "artifacts" in active_fields:
                     source_path = str(event.get("source_path") or "")
                     if needle in source_path.lower():
                         hit_fields.append("artifact")

@@ -10,6 +10,7 @@ from fixtape.generators.repro import generate_repro_script
 from fixtape.generators.summary import generate_summary
 from fixtape.generators.todo import generate_regression_todo
 from fixtape.runner import run_command
+from fixtape.shell_integration import render_shell_init
 from fixtape.session_store import (
     ActiveSessionExistsError,
     FixTapeError,
@@ -20,6 +21,7 @@ from fixtape.utils import iso_now, write_json
 
 VALID_VERDICTS = {"fixed", "unresolved", "handoff", "needs-more-data"}
 VALID_ARTIFACT_KINDS = {"trace", "log", "payload", "query", "screenshot", "config", "note", "other"}
+VALID_SEARCH_FIELDS = {"title", "summary", "notes", "commands", "artifacts"}
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -39,6 +41,16 @@ def build_parser() -> argparse.ArgumentParser:
     search_parser = subparsers.add_parser("search", help="Search across recent FixTape sessions.")
     search_parser.add_argument("query", help="Text query to search for.")
     search_parser.add_argument("--limit", type=int, default=10, help="Maximum number of matches to show.")
+    search_parser.add_argument(
+        "--field",
+        action="append",
+        choices=sorted(VALID_SEARCH_FIELDS),
+        default=[],
+        help="Restrict search to one or more fields.",
+    )
+
+    shell_parser = subparsers.add_parser("shell-init", help="Print shell helper functions for faster FixTape usage.")
+    shell_parser.add_argument("shell", choices=["powershell", "pwsh", "bash", "zsh", "sh"], help="Shell type.")
 
     subparsers.add_parser("status", help="Show active session status.")
 
@@ -111,7 +123,8 @@ def handle_show(store: SessionStore, args: argparse.Namespace) -> int:
 
 
 def handle_search(store: SessionStore, args: argparse.Namespace) -> int:
-    matches = store.search_sessions(args.query, limit=max(1, args.limit))
+    fields = set(args.field) if args.field else None
+    matches = store.search_sessions(args.query, fields=fields, limit=max(1, args.limit))
     if not matches:
         _print(f"No FixTape sessions matched: {args.query}")
         return 0
@@ -121,6 +134,11 @@ def handle_search(store: SessionStore, args: argparse.Namespace) -> int:
         _print(f"{session['id']} | {session.get('verdict') or 'active'} | {fields} | {session['title']}")
         for snippet in match["snippets"]:
             _print(f"  {snippet}")
+    return 0
+
+
+def handle_shell_init(store: SessionStore, args: argparse.Namespace) -> int:
+    _print(render_shell_init(args.shell))
     return 0
 
 
@@ -228,6 +246,7 @@ def main(argv: list[str] | None = None) -> int:
         "list": handle_list,
         "show": handle_show,
         "search": handle_search,
+        "shell-init": handle_shell_init,
         "status": handle_status,
         "note": handle_note,
         "run": handle_run,

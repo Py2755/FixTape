@@ -6,6 +6,19 @@
 python -m pip install -e .
 ```
 
+## Optional shell helpers
+
+```powershell
+Invoke-Expression (& fixtape shell-init powershell)
+```
+
+This gives you:
+- `ft` for `fixtape run -- ...`
+- `ftr` for `fixtape run --repro -- ...`
+- `ftnote` for notes
+- `ftsnap` for snapshots
+- `ftshow` and `ftsearch` for revisiting sessions
+
 ## Run a full session
 
 ```powershell

@@ -13,6 +13,8 @@ Instead of ending a hard bug hunt with just a patch and a vague memory, FixTape 
 - Git-aware snapshots of the code context,
 - and a handoff package another engineer can actually use.
 
+![FixTape demo](docs/assets/fixtape-demo.svg)
+
 ## The pitch
 
 When a hard bug is finally fixed, most teams still lose the most expensive part of the work:
@@ -67,6 +69,7 @@ Current commands:
 - `fixtape list`
 - `fixtape show [session-id]`
 - `fixtape search <query>`
+- `fixtape shell-init <powershell|bash|zsh|sh>`
 - `fixtape export <destination.zip>`
 
 ## 60-Second Quickstart
@@ -110,6 +113,30 @@ fixtape search retry
 fixtape export .\fixtape-session.zip
 ```
 
+## Optional shell helpers
+
+FixTape can print shell helpers so you can use short wrappers during debugging sessions.
+
+PowerShell:
+
+```powershell
+Invoke-Expression (& fixtape shell-init powershell)
+ft pytest tests/test_billing.py -k duplicate
+ftr python scripts/replay_invoice.py failing_invoice.json
+ftnote "Root cause likely sits in retry path"
+ftsnap
+```
+
+POSIX shells:
+
+```bash
+eval "$(fixtape shell-init bash)"
+ft pytest tests/test_billing.py -k duplicate
+ftr python scripts/replay_invoice.py failing_invoice.json
+ftnote "Root cause likely sits in retry path"
+ftsnap
+```
+
 ## Example session flow
 
 ```powershell
@@ -132,6 +159,8 @@ See more:
 - [Quickstart](docs/quickstart.md)
 - [Architecture](docs/architecture.md)
 - [Demo Session Walkthrough](docs/demo-session.md)
+- [Demo Script](docs/demo-script.md)
+- [Roadmap](docs/roadmap.md)
 
 ## Session storage
 
@@ -172,6 +201,7 @@ Already included:
 - artifact capture
 - Git snapshots
 - session history search
+- shell helper generation
 - markdown/script generation
 - unit tests
 - GitHub Actions CI

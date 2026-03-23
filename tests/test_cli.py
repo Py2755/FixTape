@@ -74,6 +74,14 @@ class FixTapeCliTests(unittest.TestCase):
         self.assertIn("demo bug", out)
         self.assertIn("first clue", out)
 
+        code, out, _ = self.run_cli(["search", "hello fixtape", "--field", "commands"])
+        self.assertEqual(code, 0)
+        self.assertIn("demo bug", out)
+
+        code, out, _ = self.run_cli(["search", "hello fixtape", "--field", "notes"])
+        self.assertEqual(code, 0)
+        self.assertIn("No FixTape sessions matched", out)
+
         archive_path = self.workspace / "fixtape-session.zip"
         code, _, _ = self.run_cli(["export", str(archive_path)])
         self.assertEqual(code, 0)
@@ -90,3 +98,9 @@ class FixTapeCliTests(unittest.TestCase):
         code, _, err = self.run_cli(["status"])
         self.assertEqual(code, 2)
         self.assertIn("No active FixTape session", err)
+
+    def test_shell_init_outputs_helpers(self) -> None:
+        code, out, _ = self.run_cli(["shell-init", "powershell"])
+        self.assertEqual(code, 0)
+        self.assertIn("function ft", out)
+        self.assertIn("function ftr", out)
