@@ -66,6 +66,7 @@ Current commands:
 - `fixtape finish --verdict <fixed|unresolved|handoff|needs-more-data>`
 - `fixtape list`
 - `fixtape show [session-id]`
+- `fixtape search <query>`
 - `fixtape export <destination.zip>`
 
 ## 60-Second Quickstart
@@ -105,6 +106,7 @@ fixtape finish --verdict fixed --summary "Retry path now respects idempotency ke
 ```powershell
 fixtape list
 fixtape show
+fixtape search retry
 fixtape export .\fixtape-session.zip
 ```
 
@@ -169,6 +171,7 @@ Already included:
 - command capture
 - artifact capture
 - Git snapshots
+- session history search
 - markdown/script generation
 - unit tests
 - GitHub Actions CI

@@ -69,6 +69,11 @@ class FixTapeCliTests(unittest.TestCase):
         self.assertEqual(code, 0)
         self.assertIn("Summary:", out)
 
+        code, out, _ = self.run_cli(["search", "clue"])
+        self.assertEqual(code, 0)
+        self.assertIn("demo bug", out)
+        self.assertIn("first clue", out)
+
         archive_path = self.workspace / "fixtape-session.zip"
         code, _, _ = self.run_cli(["export", str(archive_path)])
         self.assertEqual(code, 0)

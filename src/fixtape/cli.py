@@ -36,6 +36,10 @@ def build_parser() -> argparse.ArgumentParser:
     show_parser = subparsers.add_parser("show", help="Show a finished session by ID or the last session.")
     show_parser.add_argument("session_id", nargs="?", default=None, help="Optional session ID.")
 
+    search_parser = subparsers.add_parser("search", help="Search across recent FixTape sessions.")
+    search_parser.add_argument("query", help="Text query to search for.")
+    search_parser.add_argument("--limit", type=int, default=10, help="Maximum number of matches to show.")
+
     subparsers.add_parser("status", help="Show active session status.")
 
     note_parser = subparsers.add_parser("note", help="Add a note to the active session.")
@@ -103,6 +107,20 @@ def handle_show(store: SessionStore, args: argparse.Namespace) -> int:
     _print(f"Directory: {session_dir}")
     _print(f"Summary: {generated_dir / 'debug-summary.md'}")
     _print(f"Timeline: {generated_dir / 'timeline.json'}")
+    return 0
+
+
+def handle_search(store: SessionStore, args: argparse.Namespace) -> int:
+    matches = store.search_sessions(args.query, limit=max(1, args.limit))
+    if not matches:
+        _print(f"No FixTape sessions matched: {args.query}")
+        return 0
+    for match in matches:
+        session = match["session"]
+        fields = ", ".join(match["hit_fields"])
+        _print(f"{session['id']} | {session.get('verdict') or 'active'} | {fields} | {session['title']}")
+        for snippet in match["snippets"]:
+            _print(f"  {snippet}")
     return 0
 
 
@@ -209,6 +227,7 @@ def main(argv: list[str] | None = None) -> int:
         "start": handle_start,
         "list": handle_list,
         "show": handle_show,
+        "search": handle_search,
         "status": handle_status,
         "note": handle_note,
         "run": handle_run,

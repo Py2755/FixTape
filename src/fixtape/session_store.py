@@ -214,3 +214,56 @@ class SessionStore:
                 sessions.append(session)
         sessions.sort(key=lambda item: item.get("created_at", ""), reverse=True)
         return sessions[:limit]
+
+    def search_sessions(self, query: str, limit: int = 10) -> list[dict[str, Any]]:
+        needle = query.strip().lower()
+        if not needle:
+            return []
+
+        matches: list[dict[str, Any]] = []
+        for session in self.list_sessions(limit=10_000):
+            session_dir = self.get_session_dir(session["id"])
+            events = self.load_events(session_dir)
+
+            hit_fields: list[str] = []
+            snippets: list[str] = []
+
+            title = str(session.get("title") or "")
+            summary = str(session.get("final_summary") or "")
+            if needle in title.lower():
+                hit_fields.append("title")
+                snippets.append(title)
+            if summary and needle in summary.lower():
+                hit_fields.append("summary")
+                snippets.append(summary)
+
+            for event in events:
+                if event["type"] == "note_added":
+                    text = str(event.get("text") or "")
+                    if needle in text.lower():
+                        hit_fields.append("note")
+                        snippets.append(text)
+                elif event["type"] == "command_ran":
+                    command = str(event.get("command") or "")
+                    if needle in command.lower():
+                        hit_fields.append("command")
+                        snippets.append(command)
+                elif event["type"] == "artifact_attached":
+                    source_path = str(event.get("source_path") or "")
+                    if needle in source_path.lower():
+                        hit_fields.append("artifact")
+                        snippets.append(source_path)
+
+            if hit_fields:
+                unique_fields = list(dict.fromkeys(hit_fields))
+                unique_snippets = list(dict.fromkeys(snippets))
+                matches.append(
+                    {
+                        "session": session,
+                        "hit_fields": unique_fields,
+                        "snippets": unique_snippets[:3],
+                    }
+                )
+
+        matches.sort(key=lambda item: item["session"].get("created_at", ""), reverse=True)
+        return matches[:limit]

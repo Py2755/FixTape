@@ -28,6 +28,7 @@ fixtape finish --verdict fixed --summary "Retry path now uses idempotency key"
 ```powershell
 fixtape list
 fixtape show
+fixtape search idempotency
 fixtape export .\fixtape-session.zip
 ```
 
