@@ -1,0 +1,79 @@
+from __future__ import annotations
+
+import io
+import os
+import sys
+import tempfile
+import unittest
+from contextlib import redirect_stdout, redirect_stderr
+from pathlib import Path
+from unittest.mock import patch
+
+ROOT = Path(__file__).resolve().parents[1]
+SRC = ROOT / "src"
+if str(SRC) not in sys.path:
+    sys.path.insert(0, str(SRC))
+
+from fixtape.cli import main
+
+
+class FixTapeCliTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.temp_dir = tempfile.TemporaryDirectory()
+        self.workspace = Path(self.temp_dir.name)
+        self.env_patch = patch.dict(os.environ, {"FIXTAPE_HOME": str(self.workspace / ".fixtape-home")}, clear=False)
+        self.cwd_patch = patch("pathlib.Path.cwd", return_value=self.workspace)
+        self.env_patch.start()
+        self.cwd_patch.start()
+
+    def tearDown(self) -> None:
+        self.cwd_patch.stop()
+        self.env_patch.stop()
+        self.temp_dir.cleanup()
+
+    def run_cli(self, argv: list[str]) -> tuple[int, str, str]:
+        stdout = io.StringIO()
+        stderr = io.StringIO()
+        with redirect_stdout(stdout), redirect_stderr(stderr):
+            try:
+                code = main(argv)
+            except SystemExit as exc:
+                code = int(exc.code)
+        return code, stdout.getvalue(), stderr.getvalue()
+
+    def test_basic_session_flow(self) -> None:
+        input_file = self.workspace / "payload.json"
+        input_file.write_text('{"ok": true}\n', encoding="utf-8")
+
+        code, out, _ = self.run_cli(["start", "demo bug"])
+        self.assertEqual(code, 0)
+        self.assertIn("Started FixTape session", out)
+
+        code, _, _ = self.run_cli(["note", "first clue"])
+        self.assertEqual(code, 0)
+
+        code, _, _ = self.run_cli(["run", "--repro", "python", "-c", "print('hello fixtape')"])
+        self.assertEqual(code, 0)
+
+        code, _, _ = self.run_cli(["attach", "payload", str(input_file)])
+        self.assertEqual(code, 0)
+
+        code, _, _ = self.run_cli(["finish", "--verdict", "fixed", "--summary", "done"])
+        self.assertEqual(code, 0)
+
+        archive_path = self.workspace / "fixtape-session.zip"
+        code, _, _ = self.run_cli(["export", str(archive_path)])
+        self.assertEqual(code, 0)
+        self.assertTrue(archive_path.exists())
+
+        sessions_root = self.workspace / ".fixtape-home" / "sessions"
+        sessions = list(sessions_root.iterdir())
+        self.assertEqual(len(sessions), 1)
+        generated = sessions[0] / "generated"
+        self.assertTrue((generated / "debug-summary.md").exists())
+        self.assertTrue((generated / "regression-test.todo.md").exists())
+
+    def test_status_requires_active_session(self) -> None:
+        code, _, err = self.run_cli(["status"])
+        self.assertEqual(code, 2)
+        self.assertIn("No active FixTape session", err)
