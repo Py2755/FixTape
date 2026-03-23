@@ -15,6 +15,7 @@ from fixtape.config import (
     sessions_root,
 )
 from fixtape.events import append_event, load_events
+from fixtape.generators.digest import build_session_digest, normalize_digest_bucket
 from fixtape.git_tools import collect_git_state, write_diff_snapshots
 from fixtape.indexer import build_session_index_entry, load_index, write_index
 from fixtape.models import SessionRecord
@@ -608,6 +609,111 @@ class SessionStore:
         )
         return hotspots[:limit]
 
+    def root_cause_lenses(self, limit: int = 5) -> dict[str, list[dict[str, Any]]]:
+        sessions = self._load_indexed_sessions()
+        if not sessions:
+            self.reindex_sessions()
+            sessions = self._load_indexed_sessions()
+
+        family_buckets: dict[str, dict[str, Any]] = {}
+        area_buckets: dict[str, dict[str, Any]] = {}
+        digest_buckets: dict[str, dict[str, Any]] = {}
+
+        for session in sessions:
+            verdict = str(session.get("verdict") or "active")
+            next_step = str(session.get("digest_next_step") or "").strip()
+            for family in list(dict.fromkeys(str(item) for item in (session.get("signal_families") or []) if str(item).strip())):
+                bucket = family_buckets.setdefault(
+                    family,
+                    {"label": family, "count": 0, "open_count": 0, "next_steps": {}, "examples": []},
+                )
+                bucket["count"] += 1
+                if verdict in {"handoff", "unresolved", "needs-more-data", "active"}:
+                    bucket["open_count"] += 1
+                if next_step:
+                    bucket["next_steps"][next_step] = bucket["next_steps"].get(next_step, 0) + 1
+                title = str(session.get("title") or "")
+                if title and title not in bucket["examples"]:
+                    bucket["examples"].append(title)
+
+            area_label = str(session.get("digest_likely_area") or "").strip()
+            if area_label:
+                bucket = area_buckets.setdefault(
+                    area_label,
+                    {"label": area_label, "count": 0, "open_count": 0, "families": set(), "examples": []},
+                )
+                bucket["count"] += 1
+                if verdict in {"handoff", "unresolved", "needs-more-data", "active"}:
+                    bucket["open_count"] += 1
+                for family in session.get("signal_families") or []:
+                    bucket["families"].add(str(family))
+                title = str(session.get("title") or "")
+                if title and title not in bucket["examples"]:
+                    bucket["examples"].append(title)
+
+            digest_label = normalize_digest_bucket(str(session.get("digest_root_cause") or session.get("digest_summary") or ""))
+            if digest_label:
+                bucket = digest_buckets.setdefault(
+                    digest_label,
+                    {"label": digest_label, "count": 0, "next_steps": {}, "examples": []},
+                )
+                bucket["count"] += 1
+                if next_step:
+                    bucket["next_steps"][next_step] = bucket["next_steps"].get(next_step, 0) + 1
+                title = str(session.get("title") or "")
+                if title and title not in bucket["examples"]:
+                    bucket["examples"].append(title)
+
+        families = []
+        for bucket in family_buckets.values():
+            if bucket["count"] < 2:
+                continue
+            families.append(
+                {
+                    "label": bucket["label"],
+                    "count": bucket["count"],
+                    "open_count": bucket["open_count"],
+                    "next_step": self._top_bucket_value(bucket["next_steps"]) or "capture the next blocking fact",
+                    "examples": bucket["examples"][:3],
+                }
+            )
+
+        areas = []
+        for bucket in area_buckets.values():
+            if bucket["count"] < 2:
+                continue
+            areas.append(
+                {
+                    "label": bucket["label"],
+                    "count": bucket["count"],
+                    "open_count": bucket["open_count"],
+                    "families": sorted(bucket["families"])[:3],
+                    "examples": bucket["examples"][:3],
+                }
+            )
+
+        digests = []
+        for bucket in digest_buckets.values():
+            if bucket["count"] < 2:
+                continue
+            digests.append(
+                {
+                    "label": bucket["label"],
+                    "count": bucket["count"],
+                    "next_step": self._top_bucket_value(bucket["next_steps"]) or "capture the next blocking fact",
+                    "examples": bucket["examples"][:3],
+                }
+            )
+
+        families.sort(key=lambda item: (item["count"], item["open_count"], item["label"]), reverse=True)
+        areas.sort(key=lambda item: (item["count"], item["open_count"], item["label"]), reverse=True)
+        digests.sort(key=lambda item: (item["count"], item["label"]), reverse=True)
+        return {
+            "families": families[:limit],
+            "areas": areas[:limit],
+            "digests": digests[:limit],
+        }
+
     def reindex_sessions(self) -> int:
         entries: list[dict[str, Any]] = []
         for session_file in self.sessions_dir.glob("*/session.json"):
@@ -623,6 +729,19 @@ class SessionStore:
 
     def refresh_session_index(self, session_dir: Path) -> None:
         self._sync_session_index(session_dir)
+
+    def load_or_build_digest(self, session_dir: Path, session: dict[str, Any] | None = None) -> dict[str, Any]:
+        generated_path = session_dir / "generated" / "session-digest.json"
+        stored = read_json(generated_path)
+        if stored:
+            return stored
+        resolved_session = session or self.load_session_from_dir(session_dir)[0]
+        events = self.load_events(session_dir)
+        return build_session_digest(
+            resolved_session,
+            events,
+            parsed_artifacts=read_json(session_dir / "generated" / "parsed-artifacts.json"),
+        )
 
     def _load_indexed_sessions(self) -> list[dict[str, Any]]:
         index = load_index(self.index_path)
@@ -851,3 +970,8 @@ class SessionStore:
     def _tokenize_text(self, text: str) -> set[str]:
         tokens = set(re.findall(r"[a-z0-9_.-]{3,}", text.lower()))
         return {token for token in tokens if token not in {"error", "exception", "failed", "traceback", "command"}}
+
+    def _top_bucket_value(self, values: dict[str, int]) -> str | None:
+        if not values:
+            return None
+        return sorted(values.items(), key=lambda item: (item[1], item[0]), reverse=True)[0][0]

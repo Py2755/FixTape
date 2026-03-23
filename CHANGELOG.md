@@ -2,6 +2,17 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.1.13] - 2026-03-24
+
+### Added
+- `fixtape digest` for a compact per-session debugging brief.
+- `generated/session-digest.json` and `generated/session-digest.md` for finished sessions.
+- `fixtape lenses` for root-cause lenses across families, areas, and repeated digest themes.
+
+### Improved
+- Cross-session indexing now includes digest-level fields such as likely area, root-cause hint, and next step.
+- Session history can now be read as compressed debugging briefs instead of only raw timelines.
+
 ## [0.1.12] - 2026-03-24
 
 ### Added

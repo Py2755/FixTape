@@ -4,6 +4,7 @@ from pathlib import Path
 from typing import Any
 
 from fixtape.artifact_parser import build_parsed_artifacts
+from fixtape.generators.digest import build_session_digest
 from fixtape.utils import iso_now, read_json, write_json
 
 
@@ -17,6 +18,7 @@ def build_session_index_entry(
     artifacts = [str(event.get("source_path") or event.get("stored_path") or "") for event in events if event["type"] == "artifact_attached"]
     artifact_kinds = [str(event.get("kind") or "") for event in events if event["type"] == "artifact_attached" and event.get("kind")]
     parsed_artifacts = _load_or_build_parsed_artifacts(session_dir, events)
+    digest = _load_or_build_digest(session_dir, session, events, parsed_artifacts)
 
     return {
         "id": session["id"],
@@ -37,6 +39,11 @@ def build_session_index_entry(
         "signal_families": parsed_artifacts.get("families") or [],
         "signal_status_codes": parsed_artifacts.get("status_codes") or [],
         "signal_file_hints": parsed_artifacts.get("file_hints") or [],
+        "digest_summary": digest.get("summary_line") or "",
+        "digest_root_cause": digest.get("root_cause_hint") or "",
+        "digest_likely_area": digest.get("likely_area") or "",
+        "digest_next_step": digest.get("next_step") or "",
+        "digest_failure_family": digest.get("failure_family") or "",
         "note_count": len(notes),
         "command_count": len(commands),
         "artifact_count": len(artifacts),
@@ -50,6 +57,19 @@ def _load_or_build_parsed_artifacts(session_dir: Path, events: list[dict[str, An
     if stored:
         return stored
     return build_parsed_artifacts(events)
+
+
+def _load_or_build_digest(
+    session_dir: Path,
+    session: dict[str, Any],
+    events: list[dict[str, Any]],
+    parsed_artifacts: dict[str, Any],
+) -> dict[str, Any]:
+    generated_path = session_dir / "generated" / "session-digest.json"
+    stored = read_json(generated_path)
+    if stored:
+        return stored
+    return build_session_digest(session, events, parsed_artifacts)
 
 
 def load_index(index_path: Path) -> dict[str, Any]:

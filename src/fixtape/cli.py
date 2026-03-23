@@ -7,6 +7,7 @@ from pathlib import Path
 
 from fixtape.artifacts import copy_artifact
 from fixtape.artifact_parser import build_parsed_artifacts
+from fixtape.generators.digest import build_session_digest, generate_session_digest
 from fixtape.generators.repro import generate_repro_script
 from fixtape.generators.summary import generate_summary
 from fixtape.generators.todo import build_regression_draft, generate_regression_todo
@@ -43,6 +44,9 @@ def build_parser() -> argparse.ArgumentParser:
     show_parser = subparsers.add_parser("show", help="Show a finished session by ID or the last session.")
     show_parser.add_argument("session_id", nargs="?", default=None, help="Optional session ID.")
 
+    digest_parser = subparsers.add_parser("digest", help="Show the compact digest for the current, latest, or specified session.")
+    digest_parser.add_argument("session_id", nargs="?", default=None, help="Optional FixTape session ID.")
+
     similar_parser = subparsers.add_parser("similar", help="Show similar sessions for the current, latest, or specified session.")
     similar_parser.add_argument("session_id", nargs="?", default=None, help="Optional FixTape session ID.")
     similar_parser.add_argument("--limit", type=int, default=5, help="Maximum number of similar sessions to show.")
@@ -62,6 +66,9 @@ def build_parser() -> argparse.ArgumentParser:
         default="all",
         help="Restrict hotspots to one dimension.",
     )
+
+    lenses_parser = subparsers.add_parser("lenses", help="Show root-cause lenses across session history.")
+    lenses_parser.add_argument("--limit", type=int, default=5, help="Maximum number of items to show per lens.")
 
     search_parser = subparsers.add_parser("search", help="Search across recent FixTape sessions.")
     search_parser.add_argument("query", help="Text query to search for.")
@@ -181,6 +188,30 @@ def handle_show(store: SessionStore, args: argparse.Namespace) -> int:
     return 0
 
 
+def handle_digest(store: SessionStore, args: argparse.Namespace) -> int:
+    if args.session_id:
+        session, session_dir = store.load_session_by_id(args.session_id)
+    else:
+        session_dir = store.get_preferred_session_dir()
+        session, session_dir = store.load_session_from_dir(session_dir)
+    digest_payload = store.load_or_build_digest(session_dir, session)
+    _print(f"Session digest: {session['title']}")
+    _print(f"Summary: {digest_payload.get('summary_line') or 'n/a'}")
+    if digest_payload.get("failure_family"):
+        _print(f"Failure family: {digest_payload['failure_family']}")
+    if digest_payload.get("exception_type"):
+        _print(f"Exception: {digest_payload['exception_type']}")
+    if digest_payload.get("likely_area"):
+        _print(f"Likely area: {digest_payload['likely_area']}")
+    if digest_payload.get("root_cause_hint"):
+        _print(f"Root-cause hint: {digest_payload['root_cause_hint']}")
+    if digest_payload.get("repro_command"):
+        _print(f"Repro command: {digest_payload['repro_command']}")
+    if digest_payload.get("next_step"):
+        _print(f"Next step: {digest_payload['next_step']}")
+    return 0
+
+
 def handle_similar(store: SessionStore, args: argparse.Namespace) -> int:
     matches = store.find_similar_sessions(args.session_id, limit=max(1, args.limit))
     if not matches:
@@ -242,6 +273,35 @@ def handle_hotspots(store: SessionStore, args: argparse.Namespace) -> int:
             _print(f"  examples: {', '.join(hotspot['examples'])}")
         if hotspot["headlines"]:
             _print(f"  signals: {', '.join(hotspot['headlines'])}")
+    return 0
+
+
+def handle_lenses(store: SessionStore, args: argparse.Namespace) -> int:
+    lenses = store.root_cause_lenses(limit=max(1, args.limit))
+    if not any(lenses.values()):
+        _print("No root-cause lenses detected yet.")
+        return 0
+
+    _print("Family lenses:")
+    if lenses["families"]:
+        for item in lenses["families"]:
+            _print(f"  {item['label']} | {item['count']} sessions | open={item['open_count']} | next={item['next_step']}")
+    else:
+        _print("  none")
+
+    _print("Area lenses:")
+    if lenses["areas"]:
+        for item in lenses["areas"]:
+            _print(f"  {item['label']} | {item['count']} sessions | open={item['open_count']} | families={', '.join(item['families'])}")
+    else:
+        _print("  none")
+
+    _print("Digest lenses:")
+    if lenses["digests"]:
+        for item in lenses["digests"]:
+            _print(f"  {item['label']} | {item['count']} sessions | next={item['next_step']}")
+    else:
+        _print("  none")
     return 0
 
 
@@ -410,6 +470,9 @@ def handle_finish(store: SessionStore, args: argparse.Namespace) -> int:
     generate_regression_todo(generated_dir / "regression-test.todo.md", session, events)
     write_json(generated_dir / "regression-draft.json", build_regression_draft(session, events))
     generate_handoff(generated_dir / "handoff.md", session, events, parsed_artifacts=parsed_artifacts)
+    digest_payload = build_session_digest(session, events, parsed_artifacts)
+    write_json(generated_dir / "session-digest.json", digest_payload)
+    generate_session_digest(generated_dir / "session-digest.md", digest_payload)
     write_json(generated_dir / "timeline.json", events)
     store.refresh_session_index(session_dir)
     _print(f"Session finished: {session_dir.name}")
@@ -433,10 +496,12 @@ def main(argv: list[str] | None = None) -> int:
         "list": handle_list,
         "reindex": handle_reindex,
         "show": handle_show,
+        "digest": handle_digest,
         "similar": handle_similar,
         "patterns": handle_patterns,
         "clusters": handle_clusters,
         "hotspots": handle_hotspots,
+        "lenses": handle_lenses,
         "search": handle_search,
         "shell-init": handle_shell_init,
         "record-shell-command": handle_record_shell_command,

@@ -52,6 +52,8 @@ That makes it useful for:
 At the end of a debugging session, FixTape can generate:
 - `generated/handoff.md`
 - `generated/debug-summary.md`
+- `generated/session-digest.md`
+- `generated/session-digest.json`
 - `generated/parsed-artifacts.json`
 - `generated/repro.ps1` or `generated/repro.sh`
 - `generated/regression-test.todo.md`
@@ -73,10 +75,12 @@ Current commands:
 - `fixtape finish --verdict <fixed|unresolved|handoff|needs-more-data>`
 - `fixtape list`
 - `fixtape show [session-id]`
+- `fixtape digest [session-id]`
 - `fixtape similar [session-id]`
 - `fixtape patterns`
 - `fixtape clusters`
 - `fixtape hotspots`
+- `fixtape lenses`
 - `fixtape search <query>`
 - `fixtape reindex`
 - `fixtape shell-init <powershell|bash|zsh|sh>`
@@ -119,10 +123,12 @@ fixtape finish --verdict fixed --summary "Retry path now respects idempotency ke
 ```powershell
 fixtape list
 fixtape show
+fixtape digest
 fixtape similar
 fixtape patterns
 fixtape clusters
 fixtape hotspots --kind file
+fixtape lenses
 fixtape search retry
 fixtape link ticket PAY-123
 fixtape export .\fixtape-session.zip
@@ -141,6 +147,13 @@ FixTape now also builds a second layer of cross-session intelligence:
 FixTape now also has history-level intelligence views:
 - `fixtape clusters` groups connected incidents that keep rhyming across time
 - `fixtape hotspots` shows which files, exceptions, families, status codes, or fingerprints keep reappearing
+- `fixtape lenses` compresses the history into root-cause lenses and common next steps
+
+FixTape now also writes a compact session digest on finish:
+- one-line summary of the case
+- likely failure family and area
+- root-cause hint
+- next recommended step
 
 Refs can now be linked directly after or during a session:
 
@@ -287,6 +300,8 @@ FixTape stores sessions locally inside:
       artifacts/
       snapshots/
       generated/
+        session-digest.json
+        session-digest.md
 ```
 
 If FixTape runs inside a Git repository, it stores data at the repository root. Otherwise it stores data in the current working directory.

@@ -357,3 +357,48 @@ class FixTapeCliTests(unittest.TestCase):
         code, out, _ = self.run_cli(["hotspots", "--kind", "status"])
         self.assertEqual(code, 0)
         self.assertIn("HTTP 503", out)
+
+    def test_digest_and_lenses_surface_compact_history(self) -> None:
+        trace_one = self.workspace / "digest-trace-one.txt"
+        trace_two = self.workspace / "digest-trace-two.txt"
+        trace_one.write_text(
+            "Traceback (most recent call last):\n"
+            "  File \"billing.py\", line 12, in charge\n"
+            "    raise ValueError('duplicate payment')\n"
+            "ValueError: duplicate payment\n",
+            encoding="utf-8",
+        )
+        trace_two.write_text(
+            "Traceback (most recent call last):\n"
+            "  File \"billing.py\", line 14, in charge\n"
+            "    raise ValueError('duplicate payment')\n"
+            "ValueError: duplicate payment\n",
+            encoding="utf-8",
+        )
+
+        code, _, _ = self.run_cli(["start", "billing duplicate one"])
+        self.assertEqual(code, 0)
+        code, _, _ = self.run_cli(["attach", "trace", str(trace_one)])
+        self.assertEqual(code, 0)
+        code, _, _ = self.run_cli(["finish", "--verdict", "handoff", "--summary", "retry path duplicates payment"])
+        self.assertEqual(code, 0)
+
+        code, _, _ = self.run_cli(["start", "billing duplicate two"])
+        self.assertEqual(code, 0)
+        code, _, _ = self.run_cli(["attach", "trace", str(trace_two)])
+        self.assertEqual(code, 0)
+        code, _, _ = self.run_cli(["finish", "--verdict", "needs-more-data", "--summary", "retry path duplicates payment"])
+        self.assertEqual(code, 0)
+
+        code, out, _ = self.run_cli(["digest"])
+        self.assertEqual(code, 0)
+        self.assertIn("Root-cause hint", out)
+        self.assertIn("billing.py", out)
+
+        code, out, _ = self.run_cli(["lenses"])
+        self.assertEqual(code, 0)
+        self.assertIn("Family lenses:", out)
+        self.assertIn("python_exception", out)
+        self.assertIn("Area lenses:", out)
+        self.assertIn("billing.py", out)
+        self.assertIn("Digest lenses:", out)
