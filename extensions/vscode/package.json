@@ -2,14 +2,28 @@
   "name": "fixtape-vscode",
   "displayName": "FixTape",
   "description": "Browse active and recent FixTape sessions from inside VS Code.",
-  "version": "0.1.0",
+  "version": "0.1.10",
   "publisher": "Py2755",
   "license": "MIT",
   "engines": {
     "vscode": "^1.90.0"
   },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Py2755/FixTape.git"
+  },
+  "homepage": "https://github.com/Py2755/FixTape",
+  "bugs": {
+    "url": "https://github.com/Py2755/FixTape/issues"
+  },
   "categories": [
     "Other"
+  ],
+  "keywords": [
+    "debugging",
+    "developer-tools",
+    "session-tracking",
+    "handoff"
   ],
   "activationEvents": [
     "onView:fixtapeSessions",
@@ -20,6 +34,13 @@
     "onCommand:fixtape.openBestEntry"
   ],
   "main": "./extension.js",
+  "scripts": {
+    "package": "vsce package",
+    "package:pre-release": "vsce package --pre-release"
+  },
+  "devDependencies": {
+    "@vscode/vsce": "^3.2.2"
+  },
   "contributes": {
     "viewsContainers": {
       "activitybar": [

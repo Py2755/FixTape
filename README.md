@@ -231,6 +231,7 @@ See more:
 - [Demo Session Walkthrough](docs/demo-session.md)
 - [Demo Script](docs/demo-script.md)
 - [VS Code Extension](docs/vscode-extension.md)
+- [Publishing](docs/publishing.md)
 - [Roadmap](docs/roadmap.md)
 
 ## VS Code extension
@@ -242,6 +243,10 @@ It adds:
 - active and recent session visibility,
 - one-click opening of `handoff.md` and `debug-summary.md`,
 - quick reveal of the session folder.
+
+The repository also now ships separate packaging paths for both delivery surfaces:
+- Python CLI artifacts from the repository root
+- versioned VS Code `.vsix` packages from `extensions/vscode`
 
 ## Session storage
 

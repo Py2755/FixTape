@@ -1,0 +1,7 @@
+**/.git/**
+**/.github/**
+**/.vscode/**
+**/__pycache__/**
+README.md
+CHANGELOG.md
+node_modules/**

@@ -2,6 +2,16 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.1.10] - 2026-03-24
+
+### Added
+- Separate packaging workflows for the Python CLI and the VS Code extension.
+- Publishing documentation for building wheels, sdists, and `.vsix` artifacts.
+- Extension packaging metadata and ignore rules for cleaner VSIX output.
+
+### Improved
+- Package versions are now aligned across Python metadata, runtime version, and extension metadata.
+
 ## [0.1.9] - 2026-03-24
 
 ### Added
