@@ -73,6 +73,8 @@ Current commands:
 - `fixtape finish --verdict <fixed|unresolved|handoff|needs-more-data>`
 - `fixtape list`
 - `fixtape show [session-id]`
+- `fixtape similar [session-id]`
+- `fixtape patterns`
 - `fixtape search <query>`
 - `fixtape reindex`
 - `fixtape shell-init <powershell|bash|zsh|sh>`
@@ -115,6 +117,8 @@ fixtape finish --verdict fixed --summary "Retry path now respects idempotency ke
 ```powershell
 fixtape list
 fixtape show
+fixtape similar
+fixtape patterns
 fixtape search retry
 fixtape link ticket PAY-123
 fixtape export .\fixtape-session.zip
@@ -122,7 +126,13 @@ fixtape export .\fixtape-session.zip
 
 `fixtape search` now ranks stronger matches above weaker ones and shows compact field-labeled snippets, so title and summary hits naturally rise above low-signal substring matches.
 
+`fixtape search --field signals` can now search parsed failure signals directly, including exception types, stack-trace families, HTTP failures, and file hints.
+
 FixTape now also maintains a local cross-session index in `.fixtape/session-index.json`, which powers faster `list` and `search` across accumulated debugging history.
+
+FixTape now also builds a second layer of cross-session intelligence:
+- `fixtape similar` finds sessions with matching failure fingerprints, exception types, refs, and command patterns
+- `fixtape patterns` highlights recurring failure clusters across your debugging history
 
 Refs can now be linked directly after or during a session:
 
@@ -150,7 +160,12 @@ FixTape also drafts regression-test inputs from captured evidence:
 FixTape now also parses failure signals from attached traces and captured command outputs:
 - Python tracebacks
 - common Node/JavaScript stack traces
+- Java stack traces
+- HTTP 4xx/5xx failures
+- common SQL failures
+- pytest-style failures
 - generic high-signal error lines from stderr and log-like artifacts
+- command-level non-zero exit failures when no stderr artifact is available
 
 ## Optional shell helpers
 

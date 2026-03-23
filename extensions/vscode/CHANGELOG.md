@@ -1,5 +1,9 @@
 # Change Log
 
+## 0.1.11
+
+- Aligned extension version metadata with the new FixTape release.
+
 ## 0.1.10
 
 - Added repository metadata, keywords, and packaging scripts.

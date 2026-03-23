@@ -2,6 +2,19 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.1.11] - 2026-03-24
+
+### Added
+- Smarter failure parsing for Python, Node, Java, HTTP, SQL, pytest, and command-level failures.
+- Structured parsed artifact metadata such as fingerprints, exception types, file hints, and status codes.
+- `fixtape similar` for finding related debugging sessions.
+- `fixtape patterns` for surfacing recurring failure fingerprints across history.
+
+### Improved
+- `fixtape search` can now match parsed failure signals directly through `--field signals`.
+- `fixtape show` now surfaces nearby similar sessions.
+- Cross-session indexing now stores structured failure data for better retrieval and clustering.
+
 ## [0.1.10] - 2026-03-24
 
 ### Added

@@ -220,3 +220,65 @@ class FixTapeCliTests(unittest.TestCase):
         lines = [line for line in out.splitlines() if line and not line.startswith("  ")]
         self.assertGreaterEqual(len(lines), 2)
         self.assertIn("payment retry idempotency", lines[0])
+
+    def test_similar_and_patterns_use_cross_session_failure_signals(self) -> None:
+        trace_one = self.workspace / "trace-one.txt"
+        trace_two = self.workspace / "trace-two.txt"
+        trace_one.write_text(
+            "Traceback (most recent call last):\n"
+            "  File \"worker.py\", line 42, in run\n"
+            "    raise RuntimeError('broken')\n"
+            "RuntimeError: broken\n",
+            encoding="utf-8",
+        )
+        trace_two.write_text(
+            "Traceback (most recent call last):\n"
+            "  File \"worker.py\", line 57, in run\n"
+            "    raise RuntimeError('broken')\n"
+            "RuntimeError: broken\n",
+            encoding="utf-8",
+        )
+
+        code, _, _ = self.run_cli(["start", "worker crash one"])
+        self.assertEqual(code, 0)
+        code, _, _ = self.run_cli(["attach", "trace", str(trace_one)])
+        self.assertEqual(code, 0)
+        code, _, _ = self.run_cli(["finish", "--verdict", "fixed", "--summary", "done"])
+        self.assertEqual(code, 0)
+
+        code, _, _ = self.run_cli(["start", "worker crash two"])
+        self.assertEqual(code, 0)
+        code, _, _ = self.run_cli(["attach", "trace", str(trace_two)])
+        self.assertEqual(code, 0)
+        code, _, _ = self.run_cli(["finish", "--verdict", "handoff", "--summary", "needs follow-up"])
+        self.assertEqual(code, 0)
+
+        code, out, _ = self.run_cli(["similar"])
+        self.assertEqual(code, 0)
+        self.assertIn("worker crash one", out)
+        self.assertIn("shared failure fingerprint", out)
+
+        code, out, _ = self.run_cli(["patterns"])
+        self.assertEqual(code, 0)
+        self.assertIn("RuntimeError: broken", out)
+        self.assertIn("worker crash one", out)
+
+    def test_search_can_hit_signal_fields(self) -> None:
+        trace_file = self.workspace / "node-trace.txt"
+        trace_file.write_text(
+            "TypeError: Cannot read properties of undefined (reading 'id')\n"
+            "    at retry (billing.js:17:3)\n"
+            "    at processPayment (billing.js:41:9)\n",
+            encoding="utf-8",
+        )
+
+        code, _, _ = self.run_cli(["start", "node crash"])
+        self.assertEqual(code, 0)
+        code, _, _ = self.run_cli(["attach", "trace", str(trace_file)])
+        self.assertEqual(code, 0)
+        code, _, _ = self.run_cli(["finish", "--verdict", "fixed", "--summary", "done"])
+        self.assertEqual(code, 0)
+
+        code, out, _ = self.run_cli(["search", "TypeError", "--field", "signals"])
+        self.assertEqual(code, 0)
+        self.assertIn("node crash", out)

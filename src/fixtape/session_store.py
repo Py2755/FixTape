@@ -310,7 +310,7 @@ class SessionStore:
         needle = query.strip().lower()
         if not needle:
             return []
-        active_fields = fields or {"title", "summary", "notes", "commands", "artifacts", "refs"}
+        active_fields = fields or {"title", "summary", "notes", "commands", "artifacts", "refs", "signals"}
         query_terms = [term for term in re.split(r"\s+", needle) if term]
 
         matches: list[dict[str, Any]] = []
@@ -327,6 +327,10 @@ class SessionStore:
             title = str(session.get("title") or "")
             summary = str(session.get("summary") or "")
             refs = [str(item) for item in session.get("refs", [])]
+            signal_headlines = [str(item) for item in session.get("signal_headlines", [])]
+            signal_exception_types = [str(item) for item in session.get("signal_exception_types", [])]
+            signal_families = [str(item) for item in session.get("signal_families", [])]
+            signal_file_hints = [str(item) for item in session.get("signal_file_hints", [])]
             if "title" in active_fields:
                 field_score = self._score_text_match(title, needle, query_terms, base_weight=80)
                 if field_score:
@@ -345,6 +349,34 @@ class SessionStore:
                     if field_score:
                         hit_fields.append("ref")
                         snippets.append(self._make_snippet("ref", ref, needle))
+                        score += field_score
+            for signal in signal_headlines:
+                if "signals" in active_fields:
+                    field_score = self._score_text_match(signal, needle, query_terms, base_weight=58)
+                    if field_score:
+                        hit_fields.append("signal")
+                        snippets.append(self._make_snippet("signal", signal, needle))
+                        score += field_score
+            for exception_type in signal_exception_types:
+                if "signals" in active_fields:
+                    field_score = self._score_text_match(exception_type, needle, query_terms, base_weight=52)
+                    if field_score:
+                        hit_fields.append("signal")
+                        snippets.append(self._make_snippet("signal", exception_type, needle))
+                        score += field_score
+            for family in signal_families:
+                if "signals" in active_fields:
+                    field_score = self._score_text_match(family, needle, query_terms, base_weight=28)
+                    if field_score:
+                        hit_fields.append("signal")
+                        snippets.append(self._make_snippet("signal", family, needle))
+                        score += field_score
+            for file_hint in signal_file_hints:
+                if "signals" in active_fields:
+                    field_score = self._score_text_match(file_hint, needle, query_terms, base_weight=25)
+                    if field_score:
+                        hit_fields.append("signal")
+                        snippets.append(self._make_snippet("signal", file_hint, needle))
                         score += field_score
 
             for text in session.get("notes", []):
@@ -384,6 +416,102 @@ class SessionStore:
         matches.sort(key=lambda item: (item["score"], item["session"].get("created_at", "")), reverse=True)
         return matches[:limit]
 
+    def find_similar_sessions(self, session_id: str | None = None, limit: int = 5) -> list[dict[str, Any]]:
+        sessions = self._load_indexed_sessions()
+        if not sessions:
+            self.reindex_sessions()
+            sessions = self._load_indexed_sessions()
+
+        target = None
+        if session_id:
+            for session in sessions:
+                if session.get("id") == session_id:
+                    target = session
+                    break
+            if target is None:
+                raise FixTapeError(f"FixTape session not found: {session_id}")
+        else:
+            try:
+                session_dir = self.get_preferred_session_dir()
+                session, _ = self.load_session_from_dir(session_dir)
+                target = next((item for item in sessions if item.get("id") == session["id"]), None)
+            except NoActiveSessionError:
+                target = sessions[0] if sessions else None
+
+        if target is None:
+            return []
+
+        matches: list[dict[str, Any]] = []
+        for candidate in sessions:
+            if candidate.get("id") == target.get("id"):
+                continue
+            score, reasons = self._score_session_similarity(target, candidate)
+            if score <= 0:
+                continue
+            matches.append({"session": candidate, "score": score, "reasons": reasons[:4]})
+
+        matches.sort(key=lambda item: (item["score"], item["session"].get("created_at", "")), reverse=True)
+        return matches[:limit]
+
+    def recurring_patterns(self, limit: int = 5) -> list[dict[str, Any]]:
+        sessions = self._load_indexed_sessions()
+        if not sessions:
+            self.reindex_sessions()
+            sessions = self._load_indexed_sessions()
+
+        buckets: dict[str, dict[str, Any]] = {}
+        for session in sessions:
+            seen_in_session: set[str] = set()
+            for fingerprint in session.get("signal_fingerprints") or []:
+                normalized = str(fingerprint).strip()
+                if not normalized or normalized in seen_in_session:
+                    continue
+                seen_in_session.add(normalized)
+                bucket = buckets.setdefault(
+                    normalized,
+                    {
+                        "fingerprint": normalized,
+                        "count": 0,
+                        "titles": [],
+                        "families": set(),
+                        "exception_types": set(),
+                        "file_hints": set(),
+                        "headlines": set(),
+                        "session_ids": [],
+                    },
+                )
+                bucket["count"] += 1
+                bucket["titles"].append(session.get("title"))
+                bucket["session_ids"].append(session.get("id"))
+                for family in session.get("signal_families") or []:
+                    bucket["families"].add(str(family))
+                for exc in session.get("signal_exception_types") or []:
+                    bucket["exception_types"].add(str(exc))
+                for hint in session.get("signal_file_hints") or []:
+                    bucket["file_hints"].add(str(hint))
+                for headline in session.get("signal_headlines") or []:
+                    bucket["headlines"].add(str(headline))
+
+        patterns: list[dict[str, Any]] = []
+        for bucket in buckets.values():
+            if bucket["count"] < 2:
+                continue
+            patterns.append(
+                {
+                    "fingerprint": bucket["fingerprint"],
+                    "count": bucket["count"],
+                    "families": sorted(bucket["families"])[:4],
+                    "exception_types": sorted(bucket["exception_types"])[:4],
+                    "file_hints": sorted(bucket["file_hints"])[:4],
+                    "headline": next(iter(bucket["headlines"]), bucket["fingerprint"]),
+                    "titles": [title for title in bucket["titles"][:3] if title],
+                    "session_ids": bucket["session_ids"][:5],
+                }
+            )
+
+        patterns.sort(key=lambda item: (item["count"], item["headline"]), reverse=True)
+        return patterns[:limit]
+
     def reindex_sessions(self) -> int:
         entries: list[dict[str, Any]] = []
         for session_file in self.sessions_dir.glob("*/session.json"):
@@ -396,6 +524,9 @@ class SessionStore:
             entries.append(entry)
         write_index(self.index_path, entries)
         return len(entries)
+
+    def refresh_session_index(self, session_dir: Path) -> None:
+        self._sync_session_index(session_dir)
 
     def _load_indexed_sessions(self) -> list[dict[str, Any]]:
         index = load_index(self.index_path)
@@ -473,3 +604,71 @@ class SessionStore:
         if end < len(text):
             snippet = f"{snippet}..."
         return f"[{label}] {snippet}"
+
+    def _score_session_similarity(self, target: dict[str, Any], candidate: dict[str, Any]) -> tuple[int, list[str]]:
+        score = 0
+        reasons: list[str] = []
+
+        shared_fingerprints = self._shared_values(target.get("signal_fingerprints"), candidate.get("signal_fingerprints"))
+        if shared_fingerprints:
+            score += 85 * min(2, len(shared_fingerprints))
+            reasons.append(f"shared failure fingerprint: {shared_fingerprints[0]}")
+
+        shared_exception_types = self._shared_values(
+            target.get("signal_exception_types"),
+            candidate.get("signal_exception_types"),
+        )
+        if shared_exception_types:
+            score += 35 * min(2, len(shared_exception_types))
+            reasons.append(f"shared exception: {shared_exception_types[0]}")
+
+        shared_file_hints = self._shared_values(target.get("signal_file_hints"), candidate.get("signal_file_hints"))
+        if shared_file_hints:
+            score += 24 * min(3, len(shared_file_hints))
+            reasons.append(f"same failure area: {shared_file_hints[0]}")
+
+        shared_refs = self._shared_values(target.get("refs"), candidate.get("refs"))
+        if shared_refs:
+            score += 18 * min(3, len(shared_refs))
+            reasons.append(f"shared ref: {shared_refs[0]}")
+
+        shared_title_tokens = self._shared_keyword_tokens(target, candidate, ("title", "summary"))
+        if shared_title_tokens:
+            score += 9 * min(4, len(shared_title_tokens))
+            reasons.append(f"shared context: {', '.join(shared_title_tokens[:3])}")
+
+        shared_command_tokens = self._shared_sequence_tokens(target.get("commands"), candidate.get("commands"))
+        if shared_command_tokens:
+            score += 5 * min(5, len(shared_command_tokens))
+            reasons.append(f"similar commands: {', '.join(shared_command_tokens[:3])}")
+
+        if target.get("verdict") and target.get("verdict") == candidate.get("verdict"):
+            score += 6
+
+        return score, reasons
+
+    def _shared_values(self, left: Any, right: Any) -> list[str]:
+        left_values = [str(item) for item in (left or []) if str(item).strip()]
+        right_set = {str(item) for item in (right or []) if str(item).strip()}
+        return [item for item in left_values if item in right_set]
+
+    def _shared_keyword_tokens(self, left: dict[str, Any], right: dict[str, Any], fields: tuple[str, ...]) -> list[str]:
+        left_tokens: set[str] = set()
+        right_tokens: set[str] = set()
+        for field in fields:
+            left_tokens.update(self._tokenize_text(str(left.get(field) or "")))
+            right_tokens.update(self._tokenize_text(str(right.get(field) or "")))
+        return sorted(left_tokens & right_tokens)
+
+    def _shared_sequence_tokens(self, left: Any, right: Any) -> list[str]:
+        left_tokens: set[str] = set()
+        right_tokens: set[str] = set()
+        for item in left or []:
+            left_tokens.update(self._tokenize_text(str(item)))
+        for item in right or []:
+            right_tokens.update(self._tokenize_text(str(item)))
+        return sorted(left_tokens & right_tokens)
+
+    def _tokenize_text(self, text: str) -> set[str]:
+        tokens = set(re.findall(r"[a-z0-9_.-]{3,}", text.lower()))
+        return {token for token in tokens if token not in {"error", "exception", "failed", "traceback", "command"}}

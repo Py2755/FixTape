@@ -78,6 +78,10 @@ def generate_handoff(
     if parsed_artifacts and parsed_artifacts.get("top_signals"):
         for signal in parsed_artifacts["top_signals"]:
             lines.append(f"- {signal}")
+        if parsed_artifacts.get("exception_types"):
+            lines.append(f"- Exception types: {', '.join(parsed_artifacts['exception_types'])}")
+        if parsed_artifacts.get("file_hints"):
+            lines.append(f"- File hints: {', '.join(parsed_artifacts['file_hints'])}")
     else:
         lines.append("- No parsed failure signals detected.")
     lines.append("")

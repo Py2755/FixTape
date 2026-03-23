@@ -23,7 +23,7 @@ from fixtape.utils import iso_now, write_json
 
 VALID_VERDICTS = {"fixed", "unresolved", "handoff", "needs-more-data"}
 VALID_ARTIFACT_KINDS = {"trace", "log", "payload", "query", "screenshot", "config", "note", "other"}
-VALID_SEARCH_FIELDS = {"title", "summary", "notes", "commands", "artifacts", "refs"}
+VALID_SEARCH_FIELDS = {"title", "summary", "notes", "commands", "artifacts", "refs", "signals"}
 LINK_KINDS = {"ticket", "issue", "commit", "pr", "branch", "doc", "other", "current-commit"}
 
 
@@ -42,6 +42,13 @@ def build_parser() -> argparse.ArgumentParser:
 
     show_parser = subparsers.add_parser("show", help="Show a finished session by ID or the last session.")
     show_parser.add_argument("session_id", nargs="?", default=None, help="Optional session ID.")
+
+    similar_parser = subparsers.add_parser("similar", help="Show similar sessions for the current, latest, or specified session.")
+    similar_parser.add_argument("session_id", nargs="?", default=None, help="Optional FixTape session ID.")
+    similar_parser.add_argument("--limit", type=int, default=5, help="Maximum number of similar sessions to show.")
+
+    patterns_parser = subparsers.add_parser("patterns", help="Show recurring failure patterns across sessions.")
+    patterns_parser.add_argument("--limit", type=int, default=5, help="Maximum number of recurring patterns to show.")
 
     search_parser = subparsers.add_parser("search", help="Search across recent FixTape sessions.")
     search_parser.add_argument("query", help="Text query to search for.")
@@ -152,6 +159,42 @@ def handle_show(store: SessionStore, args: argparse.Namespace) -> int:
     _print(f"Directory: {session_dir}")
     _print(f"Summary: {generated_dir / 'debug-summary.md'}")
     _print(f"Timeline: {generated_dir / 'timeline.json'}")
+    similar = store.find_similar_sessions(session["id"], limit=3)
+    if similar:
+        _print("Similar sessions:")
+        for match in similar:
+            candidate = match["session"]
+            _print(f"  - {candidate['id']} | score={match['score']} | {candidate['title']}")
+    return 0
+
+
+def handle_similar(store: SessionStore, args: argparse.Namespace) -> int:
+    matches = store.find_similar_sessions(args.session_id, limit=max(1, args.limit))
+    if not matches:
+        _print("No similar FixTape sessions found.")
+        return 0
+    for match in matches:
+        session = match["session"]
+        _print(f"{session['id']} | score={match['score']} | {session.get('verdict') or 'active'} | {session['title']}")
+        for reason in match["reasons"]:
+            _print(f"  reason: {reason}")
+    return 0
+
+
+def handle_patterns(store: SessionStore, args: argparse.Namespace) -> int:
+    patterns = store.recurring_patterns(limit=max(1, args.limit))
+    if not patterns:
+        _print("No recurring failure patterns detected yet.")
+        return 0
+    for pattern in patterns:
+        _print(f"{pattern['count']} sessions | {pattern['headline']}")
+        _print(f"  fingerprint: {pattern['fingerprint']}")
+        if pattern["exception_types"]:
+            _print(f"  exceptions: {', '.join(pattern['exception_types'])}")
+        if pattern["file_hints"]:
+            _print(f"  files: {', '.join(pattern['file_hints'])}")
+        if pattern["titles"]:
+            _print(f"  examples: {', '.join(pattern['titles'])}")
     return 0
 
 
@@ -321,6 +364,7 @@ def handle_finish(store: SessionStore, args: argparse.Namespace) -> int:
     write_json(generated_dir / "regression-draft.json", build_regression_draft(session, events))
     generate_handoff(generated_dir / "handoff.md", session, events, parsed_artifacts=parsed_artifacts)
     write_json(generated_dir / "timeline.json", events)
+    store.refresh_session_index(session_dir)
     _print(f"Session finished: {session_dir.name}")
     _print(f"Generated summary: {generated_dir / 'debug-summary.md'}")
     return 0
@@ -342,6 +386,8 @@ def main(argv: list[str] | None = None) -> int:
         "list": handle_list,
         "reindex": handle_reindex,
         "show": handle_show,
+        "similar": handle_similar,
+        "patterns": handle_patterns,
         "search": handle_search,
         "shell-init": handle_shell_init,
         "record-shell-command": handle_record_shell_command,
