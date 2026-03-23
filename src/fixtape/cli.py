@@ -50,6 +50,19 @@ def build_parser() -> argparse.ArgumentParser:
     patterns_parser = subparsers.add_parser("patterns", help="Show recurring failure patterns across sessions.")
     patterns_parser.add_argument("--limit", type=int, default=5, help="Maximum number of recurring patterns to show.")
 
+    clusters_parser = subparsers.add_parser("clusters", help="Show connected incident clusters across session history.")
+    clusters_parser.add_argument("--limit", type=int, default=5, help="Maximum number of clusters to show.")
+    clusters_parser.add_argument("--min-size", type=int, default=2, dest="min_size", help="Minimum sessions required for a cluster.")
+
+    hotspots_parser = subparsers.add_parser("hotspots", help="Show recurring failure hotspots across session history.")
+    hotspots_parser.add_argument("--limit", type=int, default=8, help="Maximum number of hotspots to show.")
+    hotspots_parser.add_argument(
+        "--kind",
+        choices=["all", "family", "exception", "file", "status", "fingerprint"],
+        default="all",
+        help="Restrict hotspots to one dimension.",
+    )
+
     search_parser = subparsers.add_parser("search", help="Search across recent FixTape sessions.")
     search_parser.add_argument("query", help="Text query to search for.")
     search_parser.add_argument("--limit", type=int, default=10, help="Maximum number of matches to show.")
@@ -195,6 +208,40 @@ def handle_patterns(store: SessionStore, args: argparse.Namespace) -> int:
             _print(f"  files: {', '.join(pattern['file_hints'])}")
         if pattern["titles"]:
             _print(f"  examples: {', '.join(pattern['titles'])}")
+    return 0
+
+
+def handle_clusters(store: SessionStore, args: argparse.Namespace) -> int:
+    clusters = store.incident_clusters(limit=max(1, args.limit), min_size=max(2, args.min_size))
+    if not clusters:
+        _print("No incident clusters detected yet.")
+        return 0
+    for cluster in clusters:
+        _print(f"{cluster['count']} sessions | open={cluster['open_count']} | {cluster['lead']}")
+        if cluster["families"]:
+            _print(f"  families: {', '.join(cluster['families'])}")
+        if cluster["exceptions"]:
+            _print(f"  exceptions: {', '.join(cluster['exceptions'])}")
+        if cluster["files"]:
+            _print(f"  files: {', '.join(cluster['files'])}")
+        if cluster["titles"]:
+            _print(f"  examples: {', '.join(cluster['titles'])}")
+    return 0
+
+
+def handle_hotspots(store: SessionStore, args: argparse.Namespace) -> int:
+    hotspots = store.hotspots(limit=max(1, args.limit), kind=args.kind)
+    if not hotspots:
+        _print("No recurring hotspots detected yet.")
+        return 0
+    for hotspot in hotspots:
+        _print(f"{hotspot['kind']} | {hotspot['count']} sessions | open={hotspot['open_count']} | {hotspot['label']}")
+        if hotspot["families"]:
+            _print(f"  families: {', '.join(hotspot['families'])}")
+        if hotspot["examples"]:
+            _print(f"  examples: {', '.join(hotspot['examples'])}")
+        if hotspot["headlines"]:
+            _print(f"  signals: {', '.join(hotspot['headlines'])}")
     return 0
 
 
@@ -388,6 +435,8 @@ def main(argv: list[str] | None = None) -> int:
         "show": handle_show,
         "similar": handle_similar,
         "patterns": handle_patterns,
+        "clusters": handle_clusters,
+        "hotspots": handle_hotspots,
         "search": handle_search,
         "shell-init": handle_shell_init,
         "record-shell-command": handle_record_shell_command,

@@ -75,6 +75,8 @@ Current commands:
 - `fixtape show [session-id]`
 - `fixtape similar [session-id]`
 - `fixtape patterns`
+- `fixtape clusters`
+- `fixtape hotspots`
 - `fixtape search <query>`
 - `fixtape reindex`
 - `fixtape shell-init <powershell|bash|zsh|sh>`
@@ -119,6 +121,8 @@ fixtape list
 fixtape show
 fixtape similar
 fixtape patterns
+fixtape clusters
+fixtape hotspots --kind file
 fixtape search retry
 fixtape link ticket PAY-123
 fixtape export .\fixtape-session.zip
@@ -133,6 +137,10 @@ FixTape now also maintains a local cross-session index in `.fixtape/session-inde
 FixTape now also builds a second layer of cross-session intelligence:
 - `fixtape similar` finds sessions with matching failure fingerprints, exception types, refs, and command patterns
 - `fixtape patterns` highlights recurring failure clusters across your debugging history
+
+FixTape now also has history-level intelligence views:
+- `fixtape clusters` groups connected incidents that keep rhyming across time
+- `fixtape hotspots` shows which files, exceptions, families, status codes, or fingerprints keep reappearing
 
 Refs can now be linked directly after or during a session:
 

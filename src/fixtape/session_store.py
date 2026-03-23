@@ -512,6 +512,102 @@ class SessionStore:
         patterns.sort(key=lambda item: (item["count"], item["headline"]), reverse=True)
         return patterns[:limit]
 
+    def incident_clusters(self, limit: int = 5, min_size: int = 2) -> list[dict[str, Any]]:
+        sessions = self._load_indexed_sessions()
+        if not sessions:
+            self.reindex_sessions()
+            sessions = self._load_indexed_sessions()
+        if len(sessions) < min_size:
+            return []
+
+        adjacency: dict[str, set[str]] = {str(session["id"]): set() for session in sessions}
+        lookup = {str(session["id"]): session for session in sessions}
+
+        for index, left in enumerate(sessions):
+            for right in sessions[index + 1 :]:
+                score, reasons = self._score_session_similarity(left, right)
+                if score < 70 or not reasons:
+                    continue
+                left_id = str(left["id"])
+                right_id = str(right["id"])
+                adjacency[left_id].add(right_id)
+                adjacency[right_id].add(left_id)
+
+        seen: set[str] = set()
+        clusters: list[dict[str, Any]] = []
+        for session in sessions:
+            session_id = str(session["id"])
+            if session_id in seen or not adjacency[session_id]:
+                continue
+            stack = [session_id]
+            component: list[str] = []
+            while stack:
+                current = stack.pop()
+                if current in seen:
+                    continue
+                seen.add(current)
+                component.append(current)
+                stack.extend(sorted(adjacency[current] - seen))
+
+            if len(component) < min_size:
+                continue
+            cluster_sessions = [lookup[item] for item in component if item in lookup]
+            cluster_sessions.sort(key=lambda item: item.get("created_at", ""), reverse=True)
+            clusters.append(self._build_cluster_payload(cluster_sessions))
+
+        clusters.sort(key=lambda item: (item["count"], item["last_seen"]), reverse=True)
+        return clusters[:limit]
+
+    def hotspots(self, limit: int = 8, kind: str = "all") -> list[dict[str, Any]]:
+        sessions = self._load_indexed_sessions()
+        if not sessions:
+            self.reindex_sessions()
+            sessions = self._load_indexed_sessions()
+
+        buckets: dict[tuple[str, str], dict[str, Any]] = {}
+        for session in sessions:
+            families = list(dict.fromkeys(str(item) for item in (session.get("signal_families") or []) if str(item).strip()))
+            exceptions = list(dict.fromkeys(str(item) for item in (session.get("signal_exception_types") or []) if str(item).strip()))
+            files = list(dict.fromkeys(str(item) for item in (session.get("signal_file_hints") or []) if str(item).strip()))
+            statuses = [f"HTTP {item}" for item in session.get("signal_status_codes") or []]
+            fingerprints = list(dict.fromkeys(str(item) for item in (session.get("signal_fingerprints") or []) if str(item).strip()))
+            bucket_inputs = {
+                "family": families,
+                "exception": exceptions,
+                "file": files,
+                "status": statuses,
+                "fingerprint": fingerprints,
+            }
+            for bucket_kind, values in bucket_inputs.items():
+                if kind != "all" and kind != bucket_kind:
+                    continue
+                for value in values:
+                    self._update_hotspot_bucket(buckets, bucket_kind, value, session)
+
+        hotspots = []
+        for bucket in buckets.values():
+            if bucket["count"] < 2:
+                continue
+            hotspots.append(
+                {
+                    "kind": bucket["kind"],
+                    "label": bucket["label"],
+                    "count": bucket["count"],
+                    "open_count": bucket["open_count"],
+                    "last_seen": bucket["last_seen"],
+                    "families": sorted(bucket["families"])[:4],
+                    "examples": bucket["examples"][:3],
+                    "headlines": list(bucket["headlines"])[:2],
+                    "session_ids": bucket["session_ids"][:5],
+                }
+            )
+
+        hotspots.sort(
+            key=lambda item: (item["count"], item["open_count"], item["last_seen"], item["label"]),
+            reverse=True,
+        )
+        return hotspots[:limit]
+
     def reindex_sessions(self) -> int:
         entries: list[dict[str, Any]] = []
         for session_file in self.sessions_dir.glob("*/session.json"):
@@ -646,6 +742,89 @@ class SessionStore:
             score += 6
 
         return score, reasons
+
+    def _build_cluster_payload(self, cluster_sessions: list[dict[str, Any]]) -> dict[str, Any]:
+        fingerprints = self._collect_cluster_values(cluster_sessions, "signal_fingerprints")
+        families = self._collect_cluster_values(cluster_sessions, "signal_families")
+        exceptions = self._collect_cluster_values(cluster_sessions, "signal_exception_types")
+        files = self._collect_cluster_values(cluster_sessions, "signal_file_hints")
+        refs = self._collect_cluster_values(cluster_sessions, "refs")
+        verdicts: dict[str, int] = {}
+        open_count = 0
+        for session in cluster_sessions:
+            verdict = str(session.get("verdict") or "active")
+            verdicts[verdict] = verdicts.get(verdict, 0) + 1
+            if verdict in {"handoff", "unresolved", "needs-more-data", "active"}:
+                open_count += 1
+
+        return {
+            "count": len(cluster_sessions),
+            "last_seen": max(str(session.get("created_at") or "") for session in cluster_sessions),
+            "session_ids": [str(session["id"]) for session in cluster_sessions[:6]],
+            "titles": [str(session.get("title") or "") for session in cluster_sessions[:4] if str(session.get("title") or "").strip()],
+            "lead": str(cluster_sessions[0].get("title") or cluster_sessions[0].get("id") or "cluster"),
+            "fingerprints": fingerprints[:4],
+            "families": families[:4],
+            "exceptions": exceptions[:4],
+            "files": files[:4],
+            "refs": refs[:4],
+            "open_count": open_count,
+            "verdicts": verdicts,
+        }
+
+    def _collect_cluster_values(self, sessions: list[dict[str, Any]], field: str) -> list[str]:
+        ranked: dict[str, int] = {}
+        for session in sessions:
+            seen: set[str] = set()
+            for value in session.get(field) or []:
+                normalized = str(value).strip()
+                if not normalized or normalized in seen:
+                    continue
+                seen.add(normalized)
+                ranked[normalized] = ranked.get(normalized, 0) + 1
+        return [item for item, _ in sorted(ranked.items(), key=lambda pair: (pair[1], pair[0]), reverse=True)]
+
+    def _update_hotspot_bucket(
+        self,
+        buckets: dict[tuple[str, str], dict[str, Any]],
+        kind: str,
+        label: str,
+        session: dict[str, Any],
+    ) -> None:
+        if not label:
+            return
+        key = (kind, label)
+        bucket = buckets.setdefault(
+            key,
+            {
+                "kind": kind,
+                "label": label,
+                "count": 0,
+                "open_count": 0,
+                "last_seen": "",
+                "families": set(),
+                "headlines": [],
+                "examples": [],
+                "session_ids": [],
+            },
+        )
+        bucket["count"] += 1
+        verdict = str(session.get("verdict") or "active")
+        if verdict in {"handoff", "unresolved", "needs-more-data", "active"}:
+            bucket["open_count"] += 1
+        created_at = str(session.get("created_at") or "")
+        if created_at > bucket["last_seen"]:
+            bucket["last_seen"] = created_at
+        bucket["session_ids"].append(str(session.get("id") or ""))
+        title = str(session.get("title") or "")
+        if title and title not in bucket["examples"]:
+            bucket["examples"].append(title)
+        for family in session.get("signal_families") or []:
+            bucket["families"].add(str(family))
+        for headline in session.get("signal_headlines") or []:
+            normalized = str(headline).strip()
+            if normalized and normalized not in bucket["headlines"]:
+                bucket["headlines"].append(normalized)
 
     def _shared_values(self, left: Any, right: Any) -> list[str]:
         left_values = [str(item) for item in (left or []) if str(item).strip()]

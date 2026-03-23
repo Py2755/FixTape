@@ -2,6 +2,16 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.1.12] - 2026-03-24
+
+### Added
+- `fixtape clusters` for connected incident clusters across historical sessions.
+- `fixtape hotspots` for recurring failure hotspots by file, exception, family, status, or fingerprint.
+
+### Improved
+- Cross-session intelligence now rolls up related failures into reusable clusters instead of only pairwise matches.
+- Hotspot analysis now surfaces repeat-problem areas with open-session pressure and recency.
+
 ## [0.1.11] - 2026-03-24
 
 ### Added

@@ -1,5 +1,9 @@
 # Change Log
 
+## 0.1.12
+
+- Aligned extension version metadata with the new FixTape release.
+
 ## 0.1.11
 
 - Aligned extension version metadata with the new FixTape release.

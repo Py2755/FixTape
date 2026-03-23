@@ -282,3 +282,78 @@ class FixTapeCliTests(unittest.TestCase):
         code, out, _ = self.run_cli(["search", "TypeError", "--field", "signals"])
         self.assertEqual(code, 0)
         self.assertIn("node crash", out)
+
+    def test_clusters_and_hotspots_group_related_sessions(self) -> None:
+        worker_trace_one = self.workspace / "worker-one.txt"
+        worker_trace_two = self.workspace / "worker-two.txt"
+        http_log = self.workspace / "gateway.log"
+        http_log_two = self.workspace / "gateway-two.log"
+
+        worker_trace_one.write_text(
+            "Traceback (most recent call last):\n"
+            "  File \"worker.py\", line 42, in run\n"
+            "    raise RuntimeError('broken')\n"
+            "RuntimeError: broken\n",
+            encoding="utf-8",
+        )
+        worker_trace_two.write_text(
+            "Traceback (most recent call last):\n"
+            "  File \"worker.py\", line 78, in run\n"
+            "    raise RuntimeError('broken')\n"
+            "RuntimeError: broken\n",
+            encoding="utf-8",
+        )
+        http_log.write_text(
+            "POST /api/payments failed with HTTP 503 Service Unavailable\n"
+            "TypeError: gateway exploded\n"
+            "    at charge (gateway.js:14:2)\n",
+            encoding="utf-8",
+        )
+        http_log_two.write_text(
+            "status=503 upstream timeout during POST /api/payments\n"
+            "TypeError: gateway exploded again\n"
+            "    at charge (gateway.js:22:2)\n",
+            encoding="utf-8",
+        )
+
+        code, _, _ = self.run_cli(["start", "worker crash alpha"])
+        self.assertEqual(code, 0)
+        code, _, _ = self.run_cli(["attach", "trace", str(worker_trace_one)])
+        self.assertEqual(code, 0)
+        code, _, _ = self.run_cli(["finish", "--verdict", "handoff", "--summary", "needs worker fix"])
+        self.assertEqual(code, 0)
+
+        code, _, _ = self.run_cli(["start", "worker crash beta"])
+        self.assertEqual(code, 0)
+        code, _, _ = self.run_cli(["attach", "trace", str(worker_trace_two)])
+        self.assertEqual(code, 0)
+        code, _, _ = self.run_cli(["finish", "--verdict", "unresolved", "--summary", "still broken"])
+        self.assertEqual(code, 0)
+
+        code, _, _ = self.run_cli(["start", "gateway 503 burst"])
+        self.assertEqual(code, 0)
+        code, _, _ = self.run_cli(["attach", "log", str(http_log)])
+        self.assertEqual(code, 0)
+        code, _, _ = self.run_cli(["finish", "--verdict", "needs-more-data", "--summary", "gateway instability"])
+        self.assertEqual(code, 0)
+
+        code, _, _ = self.run_cli(["start", "gateway 503 retry storm"])
+        self.assertEqual(code, 0)
+        code, _, _ = self.run_cli(["attach", "log", str(http_log_two)])
+        self.assertEqual(code, 0)
+        code, _, _ = self.run_cli(["finish", "--verdict", "handoff", "--summary", "gateway still unstable"])
+        self.assertEqual(code, 0)
+
+        code, out, _ = self.run_cli(["clusters"])
+        self.assertEqual(code, 0)
+        self.assertIn("worker crash", out)
+        self.assertIn("python_exception", out)
+
+        code, out, _ = self.run_cli(["hotspots", "--kind", "file"])
+        self.assertEqual(code, 0)
+        self.assertIn("worker.py", out)
+        self.assertIn("2 sessions", out)
+
+        code, out, _ = self.run_cli(["hotspots", "--kind", "status"])
+        self.assertEqual(code, 0)
+        self.assertIn("HTTP 503", out)
