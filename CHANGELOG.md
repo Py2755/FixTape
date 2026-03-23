@@ -2,6 +2,16 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.1.6] - 2026-03-24
+
+### Added
+- Lightweight VS Code extension for FixTape session visibility.
+- Activity bar view with active and recent sessions.
+- Commands to open session handoff/summary files and reveal the underlying session folder.
+
+### Improved
+- Repository docs now include a dedicated VS Code extension guide.
+
 ## [0.1.5] - 2026-03-24
 
 ### Added

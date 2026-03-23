@@ -209,7 +209,18 @@ See more:
 - [Architecture](docs/architecture.md)
 - [Demo Session Walkthrough](docs/demo-session.md)
 - [Demo Script](docs/demo-script.md)
+- [VS Code Extension](docs/vscode-extension.md)
 - [Roadmap](docs/roadmap.md)
+
+## VS Code extension
+
+FixTape now also includes a lightweight VS Code extension in [extensions/vscode](extensions/vscode).
+
+It adds:
+- a `FixTape` activity bar view,
+- active and recent session visibility,
+- one-click opening of `handoff.md` and `debug-summary.md`,
+- quick reveal of the session folder.
 
 ## Session storage
 

@@ -1,0 +1,95 @@
+{
+  "name": "fixtape-vscode",
+  "displayName": "FixTape",
+  "description": "Browse active and recent FixTape sessions from inside VS Code.",
+  "version": "0.1.0",
+  "publisher": "Py2755",
+  "license": "MIT",
+  "engines": {
+    "vscode": "^1.90.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "activationEvents": [
+    "onView:fixtapeSessions",
+    "onCommand:fixtape.refreshSessions",
+    "onCommand:fixtape.openSummary",
+    "onCommand:fixtape.openHandoff",
+    "onCommand:fixtape.revealSession",
+    "onCommand:fixtape.openBestEntry"
+  ],
+  "main": "./extension.js",
+  "contributes": {
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "fixtape",
+          "title": "FixTape",
+          "icon": "media/fixtape.svg"
+        }
+      ]
+    },
+    "views": {
+      "fixtape": [
+        {
+          "id": "fixtapeSessions",
+          "name": "Sessions"
+        }
+      ]
+    },
+    "commands": [
+      {
+        "command": "fixtape.refreshSessions",
+        "title": "FixTape: Refresh Sessions"
+      },
+      {
+        "command": "fixtape.openSummary",
+        "title": "FixTape: Open Summary"
+      },
+      {
+        "command": "fixtape.openHandoff",
+        "title": "FixTape: Open Handoff"
+      },
+      {
+        "command": "fixtape.revealSession",
+        "title": "FixTape: Reveal Session Folder"
+      },
+      {
+        "command": "fixtape.openBestEntry",
+        "title": "FixTape: Open Session Entry"
+      }
+    ],
+    "menus": {
+      "view/title": [
+        {
+          "command": "fixtape.refreshSessions",
+          "when": "view == fixtapeSessions",
+          "group": "navigation"
+        }
+      ],
+      "view/item/context": [
+        {
+          "command": "fixtape.openBestEntry",
+          "when": "view == fixtapeSessions && viewItem == fixtapeSession",
+          "group": "inline"
+        },
+        {
+          "command": "fixtape.openSummary",
+          "when": "view == fixtapeSessions && viewItem == fixtapeSession",
+          "group": "navigation"
+        },
+        {
+          "command": "fixtape.openHandoff",
+          "when": "view == fixtapeSessions && viewItem == fixtapeSession",
+          "group": "navigation"
+        },
+        {
+          "command": "fixtape.revealSession",
+          "when": "view == fixtapeSessions && viewItem == fixtapeSession",
+          "group": "navigation"
+        }
+      ]
+    }
+  }
+}
