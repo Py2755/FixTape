@@ -8,6 +8,7 @@ from pathlib import Path
 from fixtape.artifacts import copy_artifact
 from fixtape.artifact_parser import build_parsed_artifacts
 from fixtape.generators.digest import build_session_digest, generate_session_digest
+from fixtape.generators.kickoff import generate_incident_kickoff
 from fixtape.generators.repro import generate_repro_script
 from fixtape.generators.summary import generate_summary
 from fixtape.generators.todo import build_regression_draft, generate_regression_todo
@@ -81,6 +82,15 @@ def build_parser() -> argparse.ArgumentParser:
 
     recipes_parser = subparsers.add_parser("recipes", help="Show concrete fix recipes for repeated failure buckets.")
     recipes_parser.add_argument("--limit", type=int, default=5, help="Maximum number of recipes to show.")
+
+    triage_parser = subparsers.add_parser("triage", help="Suggest the best historical playbook and recipe for a current signal.")
+    triage_parser.add_argument("query", help="Current incident signal, exception, or short description.")
+    triage_parser.add_argument("--limit", type=int, default=3, help="Maximum number of supporting matches to show.")
+
+    kickoff_parser = subparsers.add_parser("kickoff", help="Start a new session with a generated incident kickoff bundle from history.")
+    kickoff_parser.add_argument("title", help="Title for the new FixTape session.")
+    kickoff_parser.add_argument("--query", required=True, help="Current incident signal used for triage.")
+    kickoff_parser.add_argument("--tag", action="append", default=[], dest="tags", help="Optional tag.")
 
     search_parser = subparsers.add_parser("search", help="Search across recent FixTape sessions.")
     search_parser.add_argument("query", help="Text query to search for.")
@@ -399,6 +409,54 @@ def handle_recipes(store: SessionStore, args: argparse.Namespace) -> int:
     return 0
 
 
+def handle_triage(store: SessionStore, args: argparse.Namespace) -> int:
+    payload = store.triage(args.query, limit=max(1, args.limit))
+    _print(f"Triage query: {payload['query']}")
+    _print(f"Recommended first move: {payload['starter_step']}")
+    _print(f"Entry point: {payload['entry_point']}")
+    _print(f"Repro command: {payload['repro_command']}")
+    if payload["artifact_kinds"]:
+        _print(f"Capture first: {', '.join(payload['artifact_kinds'])}")
+    if payload["areas"]:
+        _print(f"Check areas: {', '.join(payload['areas'])}")
+    if payload["playbook"]:
+        _print(f"Playbook: {payload['playbook']['label']}")
+    if payload["recipe"]:
+        _print(f"Recipe: {payload['recipe']['label']}")
+    if payload["sessions"]:
+        _print("Historical matches:")
+        for session in payload["sessions"]:
+            _print(f"  {session['id']} | score={session['score']} | {session['verdict']} | {session['title']}")
+    return 0
+
+
+def handle_kickoff(store: SessionStore, args: argparse.Namespace) -> int:
+    session_dir = store.start_session(args.title, args.tags)
+    session, session_dir = store.load_session_from_dir(session_dir)
+    generated_dir = session_dir / "generated"
+    triage_payload = store.triage(args.query, limit=3)
+    kickoff_payload = {
+        "title": session["title"],
+        "session_id": session["id"],
+        "query": triage_payload["query"],
+        "starter_step": triage_payload["starter_step"],
+        "entry_point": triage_payload["entry_point"],
+        "repro_command": triage_payload["repro_command"],
+        "artifact_kinds": triage_payload["artifact_kinds"],
+        "areas": triage_payload["areas"],
+        "sessions": triage_payload["sessions"],
+        "playbook": triage_payload["playbook"],
+        "recipe": triage_payload["recipe"],
+        "reasons": triage_payload["reasons"],
+    }
+    write_json(generated_dir / "incident-kickoff.json", kickoff_payload)
+    generate_incident_kickoff(generated_dir / "incident-kickoff.md", kickoff_payload)
+    _print(f"Started FixTape session: {session_dir.name}")
+    _print(f"Kickoff bundle: {generated_dir / 'incident-kickoff.md'}")
+    _print(f"Recommended first move: {triage_payload['starter_step']}")
+    return 0
+
+
 def handle_search(store: SessionStore, args: argparse.Namespace) -> int:
     fields = set(args.field) if args.field else None
     matches = store.search_sessions(args.query, fields=fields, limit=max(1, args.limit))
@@ -600,6 +658,8 @@ def main(argv: list[str] | None = None) -> int:
         "outcomes": handle_outcomes,
         "playbooks": handle_playbooks,
         "recipes": handle_recipes,
+        "triage": handle_triage,
+        "kickoff": handle_kickoff,
         "search": handle_search,
         "shell-init": handle_shell_init,
         "record-shell-command": handle_record_shell_command,

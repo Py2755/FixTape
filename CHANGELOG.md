@@ -2,6 +2,17 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.1.16] - 2026-03-24
+
+### Added
+- `fixtape triage` for matching a current signal against the best historical playbooks, recipes, hotspots, and sessions.
+- `fixtape kickoff` for starting a new session with a generated incident kickoff bundle from historical context.
+- Generated kickoff artifacts: `generated/incident-kickoff.json` and `generated/incident-kickoff.md`.
+
+### Improved
+- Historical guidance can now be used at the very start of an incident, not only after enough evidence has already been captured.
+- Repeatable playbooks and recipes now feed directly into session startup UX.
+
 ## [0.1.15] - 2026-03-24
 
 ### Added

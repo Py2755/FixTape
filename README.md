@@ -85,6 +85,8 @@ Current commands:
 - `fixtape outcomes`
 - `fixtape playbooks`
 - `fixtape recipes`
+- `fixtape triage <query>`
+- `fixtape kickoff <title> --query <query>`
 - `fixtape search <query>`
 - `fixtape reindex`
 - `fixtape shell-init <powershell|bash|zsh|sh>`
@@ -137,6 +139,8 @@ fixtape regressions
 fixtape outcomes
 fixtape playbooks
 fixtape recipes
+fixtape triage "retry storm payments"
+fixtape kickoff "payments retry gamma" --query "retry storm payments"
 fixtape search retry
 fixtape link ticket PAY-123
 fixtape export .\fixtape-session.zip
@@ -170,6 +174,10 @@ FixTape now also keeps higher-level engineering memory:
 FixTape can now also emit repeatable guidance from history:
 - `fixtape playbooks` surfaces common first moves, artifacts, and entry points for repeated failure families
 - `fixtape recipes` turns repeated failure buckets into concrete “if you see this, start here” workflows
+
+FixTape can now also use that history at incident start:
+- `fixtape triage` suggests the best historical starting point for a current signal
+- `fixtape kickoff` starts a new session and writes an incident kickoff bundle with the best known first move
 
 Refs can now be linked directly after or during a session:
 
@@ -316,6 +324,8 @@ FixTape stores sessions locally inside:
       artifacts/
       snapshots/
       generated/
+        incident-kickoff.json
+        incident-kickoff.md
         session-digest.json
         session-digest.md
 ```

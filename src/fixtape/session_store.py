@@ -1018,6 +1018,82 @@ class SessionStore:
         recipes.sort(key=lambda item: (item["count"], item["label"]), reverse=True)
         return recipes[:limit]
 
+    def triage(self, query: str, limit: int = 3) -> dict[str, Any]:
+        normalized_query = query.strip()
+        if not normalized_query:
+            raise FixTapeError("Triage query cannot be empty.")
+
+        search_matches = self.search_sessions(
+            normalized_query,
+            fields={"title", "summary", "signals", "commands", "artifacts", "refs"},
+            limit=max(1, limit),
+        )
+        playbooks = self.playbooks(limit=max(1, limit))
+        recipes = self.fix_recipes(limit=max(1, limit))
+        hotspots = self.hotspots(limit=max(1, limit), kind="all")
+
+        best_playbook = self._best_triage_match(normalized_query, playbooks, ("label", "starter_step", "entry_point", "areas", "examples"))
+        best_recipe = self._best_triage_match(normalized_query, recipes, ("label", "trigger", "area", "entry_point", "repro_command", "examples"))
+        best_hotspot = self._best_triage_match(normalized_query, hotspots, ("label", "families", "headlines", "examples"))
+
+        sessions_payload = [
+            {
+                "id": item["session"]["id"],
+                "title": item["session"]["title"],
+                "score": item["score"],
+                "verdict": item["session"].get("verdict") or "active",
+            }
+            for item in search_matches[:limit]
+        ]
+
+        reasons: list[str] = []
+        if best_playbook:
+            reasons.append(f"Best playbook match: {best_playbook['label']}")
+        if best_recipe:
+            reasons.append(f"Best recipe match: {best_recipe['label']}")
+        if best_hotspot:
+            reasons.append(f"Related hotspot: {best_hotspot['label']}")
+        if sessions_payload:
+            reasons.append(f"Matched {len(sessions_payload)} historical session(s) for the signal.")
+
+        starter_step = None
+        entry_point = None
+        repro_command = None
+        artifact_kinds: list[str] = []
+        areas: list[str] = []
+
+        if best_playbook:
+            starter_step = best_playbook.get("starter_step")
+            entry_point = best_playbook.get("entry_point")
+            artifact_kinds.extend([str(item) for item in best_playbook.get("artifacts") or []])
+            areas.extend([str(item) for item in best_playbook.get("areas") or []])
+        if best_recipe:
+            repro_command = best_recipe.get("repro_command")
+            if not entry_point:
+                entry_point = best_recipe.get("entry_point")
+            recipe_area = str(best_recipe.get("area") or "").strip()
+            if recipe_area:
+                areas.append(recipe_area)
+            artifact_kinds.extend([str(item) for item in best_recipe.get("artifact_kinds") or []])
+            if not starter_step:
+                starter_step = best_recipe.get("next_step")
+        if best_hotspot:
+            areas.append(str(best_hotspot.get("label") or ""))
+
+        return {
+            "query": normalized_query,
+            "starter_step": starter_step or "Capture the next smallest verified fact.",
+            "entry_point": entry_point or "No stable entry point recorded yet.",
+            "repro_command": repro_command or "No repro command suggested yet.",
+            "artifact_kinds": list(dict.fromkeys(item for item in artifact_kinds if item))[:5],
+            "areas": list(dict.fromkeys(item for item in areas if item))[:5],
+            "sessions": sessions_payload,
+            "playbook": best_playbook,
+            "recipe": best_recipe,
+            "hotspot": best_hotspot,
+            "reasons": reasons,
+        }
+
     def reindex_sessions(self) -> int:
         entries: list[dict[str, Any]] = []
         for session_file in self.sessions_dir.glob("*/session.json"):
@@ -1299,3 +1375,23 @@ class SessionStore:
         if total <= 0:
             return 0
         return round((part / total) * 100)
+
+    def _best_triage_match(self, query: str, items: list[dict[str, Any]], fields: tuple[str, ...]) -> dict[str, Any] | None:
+        scored: list[tuple[int, dict[str, Any]]] = []
+        terms = [term for term in re.split(r"\s+", query.lower()) if term]
+        for item in items:
+            score = 0
+            for field in fields:
+                value = item.get(field)
+                values = value if isinstance(value, list) else [value]
+                for current in values:
+                    text = str(current or "")
+                    if not text:
+                        continue
+                    score += self._score_text_match(text, query.lower(), terms, base_weight=20)
+            if score > 0:
+                scored.append((score, item))
+        if not scored:
+            return items[0] if items else None
+        scored.sort(key=lambda pair: pair[0], reverse=True)
+        return scored[0][1]

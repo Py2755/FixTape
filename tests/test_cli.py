@@ -493,3 +493,52 @@ class FixTapeCliTests(unittest.TestCase):
         self.assertIn("RuntimeError: idempotency missed", out)
         self.assertIn("recipe repro", out)
         self.assertIn("checkout recipe", out)
+
+    def test_triage_and_kickoff_surface_best_historical_start(self) -> None:
+        trace_one = self.workspace / "triage-one.txt"
+        trace_two = self.workspace / "triage-two.txt"
+        for path in (trace_one, trace_two):
+            path.write_text(
+                "Traceback (most recent call last):\n"
+                "  File \"payments.py\", line 41, in process\n"
+                "    raise RuntimeError('retry storm')\n"
+                "RuntimeError: retry storm\n",
+                encoding="utf-8",
+            )
+
+        code, _, _ = self.run_cli(["start", "payments retry alpha"])
+        self.assertEqual(code, 0)
+        code, _, _ = self.run_cli(["attach", "trace", str(trace_one)])
+        self.assertEqual(code, 0)
+        code, _, _ = self.run_cli(["run", "--repro", "python", "-c", "print('retry repro')"])
+        self.assertEqual(code, 0)
+        code, _, _ = self.run_cli(["finish", "--verdict", "handoff", "--summary", "retry storm in payments processor"])
+        self.assertEqual(code, 0)
+
+        code, _, _ = self.run_cli(["start", "payments retry beta"])
+        self.assertEqual(code, 0)
+        code, _, _ = self.run_cli(["attach", "trace", str(trace_two)])
+        self.assertEqual(code, 0)
+        code, _, _ = self.run_cli(["run", "--repro", "python", "-c", "print('retry repro')"])
+        self.assertEqual(code, 0)
+        code, _, _ = self.run_cli(["finish", "--verdict", "needs-more-data", "--summary", "retry storm in payments processor"])
+        self.assertEqual(code, 0)
+
+        code, out, _ = self.run_cli(["triage", "retry storm payments"])
+        self.assertEqual(code, 0)
+        self.assertIn("Recommended first move", out)
+        self.assertIn("payments.py", out)
+        self.assertIn("retry repro", out)
+
+        code, out, _ = self.run_cli(["kickoff", "payments retry gamma", "--query", "retry storm payments"])
+        self.assertEqual(code, 0)
+        self.assertIn("Kickoff bundle", out)
+        self.assertIn("Recommended first move", out)
+
+        sessions_root = self.workspace / ".fixtape-home" / "sessions"
+        session_dirs = sorted(sessions_root.iterdir())
+        kickoff_dir = session_dirs[-1] / "generated"
+        self.assertTrue((kickoff_dir / "incident-kickoff.md").exists())
+        kickoff_text = (kickoff_dir / "incident-kickoff.md").read_text(encoding="utf-8")
+        self.assertIn("retry storm payments", kickoff_text)
+        self.assertIn("retry repro", kickoff_text)
