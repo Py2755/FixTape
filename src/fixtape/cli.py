@@ -8,7 +8,7 @@ from pathlib import Path
 from fixtape.artifacts import copy_artifact
 from fixtape.generators.repro import generate_repro_script
 from fixtape.generators.summary import generate_summary
-from fixtape.generators.todo import generate_regression_todo
+from fixtape.generators.todo import build_regression_draft, generate_regression_todo
 from fixtape.generators.handoff import generate_handoff
 from fixtape.runner import run_command
 from fixtape.shell_integration import render_shell_init
@@ -267,6 +267,7 @@ def handle_finish(store: SessionStore, args: argparse.Namespace) -> int:
     script_name = "repro.ps1" if sys.platform.startswith("win") else "repro.sh"
     generate_repro_script(generated_dir / script_name, events)
     generate_regression_todo(generated_dir / "regression-test.todo.md", session, events)
+    write_json(generated_dir / "regression-draft.json", build_regression_draft(session, events))
     generate_handoff(generated_dir / "handoff.md", session, events)
     write_json(generated_dir / "timeline.json", events)
     _print(f"Session finished: {session_dir.name}")

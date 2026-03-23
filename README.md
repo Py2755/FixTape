@@ -54,6 +54,7 @@ At the end of a debugging session, FixTape can generate:
 - `generated/debug-summary.md`
 - `generated/repro.ps1` or `generated/repro.sh`
 - `generated/regression-test.todo.md`
+- `generated/regression-draft.json`
 - `generated/timeline.json`
 - copied artifacts such as traces, logs, payloads, and command outputs
 
@@ -122,6 +123,13 @@ fixtape export .\fixtape-session.zip
 - top-level repro and regression TODO entry points
 - `metadata.json` with related refs such as tickets or commits
 - the full original session nested under `session/`
+
+FixTape also drafts regression-test inputs from captured evidence:
+- suggested test name
+- candidate reproduction entry point
+- likely fixture files from payload/config artifacts
+- refs linked during `finish`
+- candidate assertions inferred from the debugging trail
 
 ## Optional shell helpers
 

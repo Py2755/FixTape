@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import io
+import json
 import os
 import sys
 import tempfile
@@ -107,7 +108,11 @@ class FixTapeCliTests(unittest.TestCase):
         generated = sessions[0] / "generated"
         self.assertTrue((generated / "debug-summary.md").exists())
         self.assertTrue((generated / "regression-test.todo.md").exists())
+        self.assertTrue((generated / "regression-draft.json").exists())
         self.assertTrue((generated / "handoff.md").exists())
+        draft = json.loads((generated / "regression-draft.json").read_text(encoding="utf-8"))
+        self.assertEqual(draft["suggested_test_name"], "test_demo_bug")
+        self.assertIn("ticket:PAY-123", draft["refs"])
 
     def test_status_requires_active_session(self) -> None:
         code, _, err = self.run_cli(["status"])

@@ -73,6 +73,12 @@ The exported archive now starts with handoff-first files:
 - `REGRESSION_TEST_TODO.md`
 - `metadata.json`
 
+The finished session also includes:
+- `generated/regression-test.todo.md`
+- `generated/regression-draft.json`
+
+These files use the captured notes, repro commands, refs, and payload-like artifacts to draft the next regression test step.
+
 ## What gets created
 
 ```text

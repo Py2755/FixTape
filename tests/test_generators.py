@@ -12,7 +12,7 @@ if str(SRC) not in sys.path:
 
 from fixtape.generators.repro import generate_repro_script
 from fixtape.generators.summary import generate_summary
-from fixtape.generators.todo import generate_regression_todo
+from fixtape.generators.todo import build_regression_draft, generate_regression_todo
 
 
 class GeneratorTests(unittest.TestCase):
@@ -27,11 +27,19 @@ class GeneratorTests(unittest.TestCase):
                 "workspace_root": str(root),
                 "shell": "powershell",
                 "verdict": "fixed",
+                "final_summary": "retry path now checks idempotency key",
+                "refs": ["ticket:PAY-123"],
                 "initial_git_state": None,
                 "final_git_state": None,
             }
             events = [
                 {"type": "note_added", "timestamp": "t1", "text": "first note"},
+                {
+                    "type": "artifact_attached",
+                    "timestamp": "t1",
+                    "kind": "payload",
+                    "stored_path": str(root / "payload_example.json"),
+                },
                 {"type": "command_ran", "timestamp": "t2", "command": "python -V", "exit_code": 0, "repro": True},
             ]
 
@@ -42,7 +50,11 @@ class GeneratorTests(unittest.TestCase):
             generate_summary(summary_path, session, events)
             generate_repro_script(repro_path, events)
             generate_regression_todo(todo_path, session, events)
+            draft = build_regression_draft(session, events)
 
             self.assertTrue(summary_path.exists())
             self.assertTrue(repro_path.exists())
             self.assertTrue(todo_path.exists())
+            self.assertEqual(draft["suggested_test_name"], "test_demo")
+            self.assertIn("ticket:PAY-123", draft["refs"])
+            self.assertIn("payload_example.json", draft["fixture_candidates"])

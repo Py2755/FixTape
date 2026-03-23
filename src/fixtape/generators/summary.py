@@ -75,8 +75,10 @@ def generate_summary(
     lines.append("## Attached Evidence")
     if attachments:
         for item in attachments:
+            source_path = item.get("source_path") or "n/a"
+            stored_path = item.get("stored_path") or "n/a"
             lines.append(
-                f"- `{item['timestamp']}` kind={item['kind']} source=`{item['source_path']}` stored=`{item['stored_path']}`"
+                f"- `{item['timestamp']}` kind={item['kind']} source=`{source_path}` stored=`{stored_path}`"
             )
     else:
         lines.append("- No artifacts attached.")
