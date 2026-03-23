@@ -2,6 +2,16 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.1.14] - 2026-03-24
+
+### Added
+- `fixtape regressions` for recurring regression memory across historical sessions.
+- `fixtape outcomes` for fix outcome analytics across families and verdict distributions.
+
+### Improved
+- Cross-session indexing now carries regression draft fields such as suggested test name, entry point, and fixture candidates.
+- Session history can now be read as repeatable regression opportunities and outcome analytics, not only incident patterns.
+
 ## [0.1.13] - 2026-03-24
 
 ### Added

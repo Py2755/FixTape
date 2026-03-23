@@ -5,6 +5,7 @@ from typing import Any
 
 from fixtape.artifact_parser import build_parsed_artifacts
 from fixtape.generators.digest import build_session_digest
+from fixtape.generators.todo import build_regression_draft
 from fixtape.utils import iso_now, read_json, write_json
 
 
@@ -19,6 +20,7 @@ def build_session_index_entry(
     artifact_kinds = [str(event.get("kind") or "") for event in events if event["type"] == "artifact_attached" and event.get("kind")]
     parsed_artifacts = _load_or_build_parsed_artifacts(session_dir, events)
     digest = _load_or_build_digest(session_dir, session, events, parsed_artifacts)
+    regression_draft = _load_or_build_regression_draft(session_dir, session, events)
 
     return {
         "id": session["id"],
@@ -44,6 +46,12 @@ def build_session_index_entry(
         "digest_likely_area": digest.get("likely_area") or "",
         "digest_next_step": digest.get("next_step") or "",
         "digest_failure_family": digest.get("failure_family") or "",
+        "regression_test_name": regression_draft.get("suggested_test_name") or "",
+        "regression_entry_point": regression_draft.get("candidate_test_entry_point") or "",
+        "regression_expected_behavior": regression_draft.get("expected_fixed_behavior") or "",
+        "regression_fixture_candidates": regression_draft.get("fixture_candidates") or [],
+        "regression_repro_commands": regression_draft.get("repro_commands") or [],
+        "regression_failing_commands": regression_draft.get("failing_commands") or [],
         "note_count": len(notes),
         "command_count": len(commands),
         "artifact_count": len(artifacts),
@@ -70,6 +78,18 @@ def _load_or_build_digest(
     if stored:
         return stored
     return build_session_digest(session, events, parsed_artifacts)
+
+
+def _load_or_build_regression_draft(
+    session_dir: Path,
+    session: dict[str, Any],
+    events: list[dict[str, Any]],
+) -> dict[str, Any]:
+    generated_path = session_dir / "generated" / "regression-draft.json"
+    stored = read_json(generated_path)
+    if stored:
+        return stored
+    return build_regression_draft(session, events)
 
 
 def load_index(index_path: Path) -> dict[str, Any]:

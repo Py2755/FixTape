@@ -402,3 +402,52 @@ class FixTapeCliTests(unittest.TestCase):
         self.assertIn("Area lenses:", out)
         self.assertIn("billing.py", out)
         self.assertIn("Digest lenses:", out)
+
+    def test_regressions_and_outcomes_surface_team_memory(self) -> None:
+        trace_one = self.workspace / "reg-one.txt"
+        trace_two = self.workspace / "reg-two.txt"
+        trace_three = self.workspace / "reg-three.txt"
+        for path in (trace_one, trace_two, trace_three):
+            path.write_text(
+                "Traceback (most recent call last):\n"
+                "  File \"checkout.py\", line 21, in charge\n"
+                "    raise RuntimeError('idempotency missed')\n"
+                "RuntimeError: idempotency missed\n",
+                encoding="utf-8",
+            )
+
+        code, _, _ = self.run_cli(["start", "checkout duplicate alpha"])
+        self.assertEqual(code, 0)
+        code, _, _ = self.run_cli(["attach", "trace", str(trace_one)])
+        self.assertEqual(code, 0)
+        code, _, _ = self.run_cli(["run", "--repro", "python", "-c", "print('checkout duplicate repro')"])
+        self.assertEqual(code, 0)
+        code, _, _ = self.run_cli(["finish", "--verdict", "fixed", "--summary", "idempotency missed on retry path"])
+        self.assertEqual(code, 0)
+
+        code, _, _ = self.run_cli(["start", "checkout duplicate beta"])
+        self.assertEqual(code, 0)
+        code, _, _ = self.run_cli(["attach", "trace", str(trace_two)])
+        self.assertEqual(code, 0)
+        code, _, _ = self.run_cli(["run", "--repro", "python", "-c", "print('checkout duplicate repro')"])
+        self.assertEqual(code, 0)
+        code, _, _ = self.run_cli(["finish", "--verdict", "handoff", "--summary", "idempotency missed on retry path"])
+        self.assertEqual(code, 0)
+
+        code, _, _ = self.run_cli(["start", "checkout duplicate gamma"])
+        self.assertEqual(code, 0)
+        code, _, _ = self.run_cli(["attach", "trace", str(trace_three)])
+        self.assertEqual(code, 0)
+        code, _, _ = self.run_cli(["finish", "--verdict", "needs-more-data", "--summary", "idempotency missed on retry path"])
+        self.assertEqual(code, 0)
+
+        code, out, _ = self.run_cli(["regressions"])
+        self.assertEqual(code, 0)
+        self.assertIn("checkout.py", out)
+        self.assertIn("test_checkout_duplicate", out)
+
+        code, out, _ = self.run_cli(["outcomes"])
+        self.assertEqual(code, 0)
+        self.assertIn("Totals:", out)
+        self.assertIn("python_exception", out)
+        self.assertIn("fixed=", out)

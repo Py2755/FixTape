@@ -70,6 +70,12 @@ def build_parser() -> argparse.ArgumentParser:
     lenses_parser = subparsers.add_parser("lenses", help="Show root-cause lenses across session history.")
     lenses_parser.add_argument("--limit", type=int, default=5, help="Maximum number of items to show per lens.")
 
+    regressions_parser = subparsers.add_parser("regressions", help="Show recurring regression memory across historical sessions.")
+    regressions_parser.add_argument("--limit", type=int, default=6, help="Maximum number of regression memories to show.")
+
+    outcomes_parser = subparsers.add_parser("outcomes", help="Show fix outcome analytics across session history.")
+    outcomes_parser.add_argument("--limit", type=int, default=6, help="Maximum number of family rows to show.")
+
     search_parser = subparsers.add_parser("search", help="Search across recent FixTape sessions.")
     search_parser.add_argument("query", help="Text query to search for.")
     search_parser.add_argument("--limit", type=int, default=10, help="Maximum number of matches to show.")
@@ -305,6 +311,49 @@ def handle_lenses(store: SessionStore, args: argparse.Namespace) -> int:
     return 0
 
 
+def handle_regressions(store: SessionStore, args: argparse.Namespace) -> int:
+    memories = store.regression_memory(limit=max(1, args.limit))
+    if not memories:
+        _print("No recurring regression memories detected yet.")
+        return 0
+    for item in memories:
+        _print(f"{item['count']} sessions | fixed={item['fixed_count']} | open={item['open_count']} | {item['label']}")
+        _print(f"  test: {item['test_name']}")
+        _print(f"  entry: {item['entry_point']}")
+        if item["fixtures"]:
+            _print(f"  fixtures: {', '.join(item['fixtures'])}")
+        if item["areas"]:
+            _print(f"  areas: {', '.join(item['areas'])}")
+        if item["examples"]:
+            _print(f"  examples: {', '.join(item['examples'])}")
+    return 0
+
+
+def handle_outcomes(store: SessionStore, args: argparse.Namespace) -> int:
+    analytics = store.outcome_analytics(limit=max(1, args.limit))
+    if analytics["total_sessions"] == 0:
+        _print("No outcome analytics available yet.")
+        return 0
+    _print(
+        "Totals: "
+        f"sessions={analytics['total_sessions']} "
+        f"fixed={analytics['fixed_rate']}% "
+        f"repro-ready={analytics['repro_ready_rate']}% "
+        f"regression-ready={analytics['regression_ready_rate']}%"
+    )
+    if analytics["verdicts"]:
+        verdicts = ", ".join(f"{key}={value}" for key, value in sorted(analytics["verdicts"].items()))
+        _print(f"Verdicts: {verdicts}")
+    for item in analytics["families"]:
+        _print(
+            f"{item['label']} | count={item['count']} | fixed={item['fixed_rate']}% | "
+            f"open={item['open_rate']}% | repro={item['repro_rate']}% | regression={item['regression_rate']}%"
+        )
+        if item["examples"]:
+            _print(f"  examples: {', '.join(item['examples'])}")
+    return 0
+
+
 def handle_search(store: SessionStore, args: argparse.Namespace) -> int:
     fields = set(args.field) if args.field else None
     matches = store.search_sessions(args.query, fields=fields, limit=max(1, args.limit))
@@ -502,6 +551,8 @@ def main(argv: list[str] | None = None) -> int:
         "clusters": handle_clusters,
         "hotspots": handle_hotspots,
         "lenses": handle_lenses,
+        "regressions": handle_regressions,
+        "outcomes": handle_outcomes,
         "search": handle_search,
         "shell-init": handle_shell_init,
         "record-shell-command": handle_record_shell_command,

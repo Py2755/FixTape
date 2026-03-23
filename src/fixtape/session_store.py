@@ -714,6 +714,161 @@ class SessionStore:
             "digests": digests[:limit],
         }
 
+    def regression_memory(self, limit: int = 6) -> list[dict[str, Any]]:
+        sessions = self._load_indexed_sessions()
+        if not sessions:
+            self.reindex_sessions()
+            sessions = self._load_indexed_sessions()
+
+        buckets: dict[str, dict[str, Any]] = {}
+        for session in sessions:
+            bucket_key = self._regression_bucket_key(session)
+            if not bucket_key:
+                continue
+            bucket = buckets.setdefault(
+                bucket_key,
+                {
+                    "label": bucket_key,
+                    "count": 0,
+                    "fixed_count": 0,
+                    "open_count": 0,
+                    "test_names": {},
+                    "entry_points": {},
+                    "fixtures": {},
+                    "families": set(),
+                    "areas": set(),
+                    "examples": [],
+                    "session_ids": [],
+                },
+            )
+            bucket["count"] += 1
+            verdict = str(session.get("verdict") or "active")
+            if verdict == "fixed":
+                bucket["fixed_count"] += 1
+            if verdict in {"handoff", "unresolved", "needs-more-data", "active"}:
+                bucket["open_count"] += 1
+            test_name = str(session.get("regression_test_name") or "").strip()
+            entry_point = str(session.get("regression_entry_point") or "").strip()
+            if test_name:
+                bucket["test_names"][test_name] = bucket["test_names"].get(test_name, 0) + 1
+            if entry_point:
+                bucket["entry_points"][entry_point] = bucket["entry_points"].get(entry_point, 0) + 1
+            for fixture in session.get("regression_fixture_candidates") or []:
+                normalized = str(fixture).strip()
+                if normalized:
+                    bucket["fixtures"][normalized] = bucket["fixtures"].get(normalized, 0) + 1
+            for family in session.get("signal_families") or []:
+                bucket["families"].add(str(family))
+            area = str(session.get("digest_likely_area") or "").strip()
+            if area:
+                bucket["areas"].add(area)
+            title = str(session.get("title") or "")
+            if title and title not in bucket["examples"]:
+                bucket["examples"].append(title)
+            bucket["session_ids"].append(str(session.get("id") or ""))
+
+        memories = []
+        for bucket in buckets.values():
+            if bucket["count"] < 2:
+                continue
+            memories.append(
+                {
+                    "label": bucket["label"],
+                    "count": bucket["count"],
+                    "fixed_count": bucket["fixed_count"],
+                    "open_count": bucket["open_count"],
+                    "test_name": self._top_bucket_value(bucket["test_names"]) or "no suggested test name",
+                    "entry_point": self._top_bucket_value(bucket["entry_points"]) or "no clear entry point",
+                    "fixtures": self._top_bucket_values(bucket["fixtures"], 3),
+                    "families": sorted(bucket["families"])[:3],
+                    "areas": sorted(bucket["areas"])[:3],
+                    "examples": bucket["examples"][:3],
+                    "session_ids": bucket["session_ids"][:5],
+                }
+            )
+
+        memories.sort(
+            key=lambda item: (item["count"], item["fixed_count"], item["open_count"], item["label"]),
+            reverse=True,
+        )
+        return memories[:limit]
+
+    def outcome_analytics(self, limit: int = 6) -> dict[str, Any]:
+        sessions = self._load_indexed_sessions()
+        if not sessions:
+            self.reindex_sessions()
+            sessions = self._load_indexed_sessions()
+
+        total = len(sessions)
+        verdicts: dict[str, int] = {}
+        fixed_count = 0
+        repro_ready_count = 0
+        regression_ready_count = 0
+        family_buckets: dict[str, dict[str, Any]] = {}
+
+        for session in sessions:
+            verdict = str(session.get("verdict") or "active")
+            verdicts[verdict] = verdicts.get(verdict, 0) + 1
+            if verdict == "fixed":
+                fixed_count += 1
+            if session.get("regression_repro_commands"):
+                repro_ready_count += 1
+            if session.get("regression_test_name") and session.get("regression_entry_point"):
+                regression_ready_count += 1
+
+            families = list(dict.fromkeys(str(item) for item in (session.get("signal_families") or []) if str(item).strip()))
+            if not families:
+                families = ["unknown"]
+            for family in families:
+                bucket = family_buckets.setdefault(
+                    family,
+                    {
+                        "label": family,
+                        "count": 0,
+                        "fixed_count": 0,
+                        "open_count": 0,
+                        "repro_ready_count": 0,
+                        "regression_ready_count": 0,
+                        "examples": [],
+                    },
+                )
+                bucket["count"] += 1
+                if verdict == "fixed":
+                    bucket["fixed_count"] += 1
+                if verdict in {"handoff", "unresolved", "needs-more-data", "active"}:
+                    bucket["open_count"] += 1
+                if session.get("regression_repro_commands"):
+                    bucket["repro_ready_count"] += 1
+                if session.get("regression_test_name") and session.get("regression_entry_point"):
+                    bucket["regression_ready_count"] += 1
+                title = str(session.get("title") or "")
+                if title and title not in bucket["examples"]:
+                    bucket["examples"].append(title)
+
+        families = []
+        for bucket in family_buckets.values():
+            families.append(
+                {
+                    "label": bucket["label"],
+                    "count": bucket["count"],
+                    "fixed_rate": self._percent(bucket["fixed_count"], bucket["count"]),
+                    "open_rate": self._percent(bucket["open_count"], bucket["count"]),
+                    "repro_rate": self._percent(bucket["repro_ready_count"], bucket["count"]),
+                    "regression_rate": self._percent(bucket["regression_ready_count"], bucket["count"]),
+                    "examples": bucket["examples"][:3],
+                }
+            )
+
+        families.sort(key=lambda item: (item["count"], item["fixed_rate"], item["label"]), reverse=True)
+        return {
+            "total_sessions": total,
+            "fixed_rate": self._percent(fixed_count, total),
+            "repro_ready_rate": self._percent(repro_ready_count, total),
+            "regression_ready_rate": self._percent(regression_ready_count, total),
+            "verdicts": verdicts,
+            "families": families[:limit],
+        }
+
     def reindex_sessions(self) -> int:
         entries: list[dict[str, Any]] = []
         for session_file in self.sessions_dir.glob("*/session.json"):
@@ -975,3 +1130,23 @@ class SessionStore:
         if not values:
             return None
         return sorted(values.items(), key=lambda item: (item[1], item[0]), reverse=True)[0][0]
+
+    def _top_bucket_values(self, values: dict[str, int], limit: int) -> list[str]:
+        return [item for item, _ in sorted(values.items(), key=lambda pair: (pair[1], pair[0]), reverse=True)[:limit]]
+
+    def _regression_bucket_key(self, session: dict[str, Any]) -> str | None:
+        fingerprint = str((session.get("signal_fingerprints") or [None])[0] or "").strip()
+        if fingerprint:
+            return fingerprint
+        digest_area = normalize_digest_bucket(str(session.get("digest_likely_area") or ""))
+        if digest_area:
+            return f"area:{digest_area}"
+        test_name = normalize_digest_bucket(str(session.get("regression_test_name") or ""))
+        if test_name:
+            return f"test:{test_name}"
+        return None
+
+    def _percent(self, part: int, total: int) -> int:
+        if total <= 0:
+            return 0
+        return round((part / total) * 100)
