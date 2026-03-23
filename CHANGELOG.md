@@ -2,6 +2,14 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.1.1] - 2026-03-23
+
+### Added
+- Demo asset and demo script for a stronger first impression in the repository.
+- `fixtape search --field ...` filtering for more focused session lookup.
+- `fixtape shell-init` for PowerShell and POSIX helper wrappers.
+- Roadmap documentation for the next public iterations.
+
 ## [0.1.0] - 2026-03-23
 
 ### Added
