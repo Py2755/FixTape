@@ -23,6 +23,11 @@ classifiers = [
   "Topic :: Utilities"
 ]
 
+[project.urls]
+Homepage = "https://github.com/Py2755/FixTape"
+Repository = "https://github.com/Py2755/FixTape"
+Issues = "https://github.com/Py2755/FixTape/issues"
+
 [project.scripts]
 fixtape = "fixtape.cli:main"
 

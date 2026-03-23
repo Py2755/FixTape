@@ -30,6 +30,12 @@ def build_parser() -> argparse.ArgumentParser:
     start_parser.add_argument("title", help="Short title for the debugging session.")
     start_parser.add_argument("--tag", action="append", default=[], dest="tags", help="Optional tag.")
 
+    list_parser = subparsers.add_parser("list", help="List recent FixTape sessions.")
+    list_parser.add_argument("--limit", type=int, default=10, help="Maximum number of sessions to show.")
+
+    show_parser = subparsers.add_parser("show", help="Show a finished session by ID or the last session.")
+    show_parser.add_argument("session_id", nargs="?", default=None, help="Optional session ID.")
+
     subparsers.add_parser("status", help="Show active session status.")
 
     note_parser = subparsers.add_parser("note", help="Add a note to the active session.")
@@ -67,6 +73,36 @@ def handle_start(store: SessionStore, args: argparse.Namespace) -> int:
     session_dir = store.start_session(args.title, args.tags)
     _print(f"Started FixTape session: {session_dir.name}")
     _print(f"Session directory: {session_dir}")
+    return 0
+
+
+def handle_list(store: SessionStore, args: argparse.Namespace) -> int:
+    sessions = store.list_sessions(limit=max(1, args.limit))
+    if not sessions:
+        _print("No FixTape sessions found yet.")
+        return 0
+    for session in sessions:
+        verdict = session.get("verdict") or "active"
+        _print(f"{session['id']} | {session['created_at']} | {verdict} | {session['title']}")
+    return 0
+
+
+def handle_show(store: SessionStore, args: argparse.Namespace) -> int:
+    if args.session_id:
+        session, session_dir = store.load_session_by_id(args.session_id)
+    else:
+        session_dir = store.get_last_session_dir()
+        session, session_dir = store.load_session_from_dir(session_dir)
+
+    generated_dir = session_dir / "generated"
+    _print(f"Session: {session['title']}")
+    _print(f"Session ID: {session['id']}")
+    _print(f"Created: {session['created_at']}")
+    _print(f"Finished: {session.get('finished_at') or 'active'}")
+    _print(f"Verdict: {session.get('verdict') or 'n/a'}")
+    _print(f"Directory: {session_dir}")
+    _print(f"Summary: {generated_dir / 'debug-summary.md'}")
+    _print(f"Timeline: {generated_dir / 'timeline.json'}")
     return 0
 
 
@@ -171,6 +207,8 @@ def main(argv: list[str] | None = None) -> int:
 
     handlers = {
         "start": handle_start,
+        "list": handle_list,
+        "show": handle_show,
         "status": handle_status,
         "note": handle_note,
         "run": handle_run,

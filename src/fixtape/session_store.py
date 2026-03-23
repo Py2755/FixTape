@@ -91,12 +91,24 @@ class SessionStore:
             raise NoActiveSessionError("No finished FixTape session is available for export.")
         return self._resolve_pointer(pointer)
 
+    def get_session_dir(self, session_id: str) -> Path:
+        session_dir = self.sessions_dir / session_id
+        if not session_dir.exists():
+            raise FixTapeError(f"FixTape session not found: {session_id}")
+        return session_dir
+
     def load_session(self) -> tuple[dict[str, Any], Path]:
         session_dir = self.get_active_session_dir()
+        return self.load_session_from_dir(session_dir)
+
+    def load_session_from_dir(self, session_dir: Path) -> tuple[dict[str, Any], Path]:
         session = read_json(session_dir / "session.json")
         if not session:
             raise NoActiveSessionError("Active FixTape session metadata is missing.")
         return session, session_dir
+
+    def load_session_by_id(self, session_id: str) -> tuple[dict[str, Any], Path]:
+        return self.load_session_from_dir(self.get_session_dir(session_id))
 
     def load_events(self, session_dir: Path) -> list[dict[str, Any]]:
         return load_events(session_dir / "events.jsonl")
@@ -193,3 +205,12 @@ class SessionStore:
                 if file_path.is_file():
                     archive.write(file_path, arcname=str(file_path.relative_to(session_dir.parent)))
         return destination
+
+    def list_sessions(self, limit: int = 10) -> list[dict[str, Any]]:
+        sessions: list[dict[str, Any]] = []
+        for session_file in self.sessions_dir.glob("*/session.json"):
+            session = read_json(session_file)
+            if session:
+                sessions.append(session)
+        sessions.sort(key=lambda item: item.get("created_at", ""), reverse=True)
+        return sessions[:limit]
