@@ -1,0 +1,8 @@
+Traceback (most recent call last):
+  File "billing/webhook.py", line 42, in handle_event
+    charge = process_payment(event)
+  File "billing/payments.py", line 88, in process_payment
+    validate_idempotency(event["idempotency_key"])
+  File "billing/payments.py", line 112, in validate_idempotency
+    raise DuplicateChargeError(f"Idempotency key already used: {key}")
+billing.errors.DuplicateChargeError: Idempotency key already used: idem_abc123

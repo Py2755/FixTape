@@ -4,13 +4,13 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "fixtape"
-version = "0.2.2"
+version = "0.3.0"
 description = "Turn debugging sessions into reusable engineering artifacts."
-readme = "README.md"
+readme = {file = "README.md", content-type = "text/markdown"}
 requires-python = ">=3.12"
 license = { text = "MIT" }
-authors = [{ name = "FixTape" }]
-keywords = ["debugging", "cli", "developer-tools", "incident-response", "productivity"]
+authors = [{ name = "Py2755", email = "py2755@users.noreply.github.com" }]
+keywords = ["debugging", "cli", "developer-tools", "incident-response", "productivity", "devtools", "postmortem"]
 classifiers = [
   "Development Status :: 3 - Alpha",
   "Environment :: Console",
@@ -19,14 +19,25 @@ classifiers = [
   "Operating System :: OS Independent",
   "Programming Language :: Python :: 3",
   "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
   "Topic :: Software Development :: Debuggers",
-  "Topic :: Utilities"
+  "Topic :: Software Development :: Testing",
+  "Topic :: Utilities",
+  "Typing :: Typed"
 ]
 
 [project.urls]
 Homepage = "https://github.com/Py2755/FixTape"
 Repository = "https://github.com/Py2755/FixTape"
 Issues = "https://github.com/Py2755/FixTape/issues"
+Documentation = "https://github.com/Py2755/FixTape#readme"
+Changelog = "https://github.com/Py2755/FixTape/blob/main/CHANGELOG.md"
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=8.0",
+  "pytest-cov>=5.0",
+]
 
 [project.scripts]
 fixtape = "fixtape.cli:main"
@@ -36,3 +47,14 @@ package-dir = {"" = "src"}
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "--tb=short -q"
+
+[tool.coverage.run]
+source = ["fixtape"]
+
+[tool.coverage.report]
+show_missing = true
+fail_under = 60

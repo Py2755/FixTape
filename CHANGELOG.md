@@ -2,6 +2,22 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.3.0] - 2026-03-27
+
+### Added
+- PyPI publishing workflow with Trusted Publisher support.
+- End-to-end test covering the full session lifecycle from start through export.
+- Example session artifacts: sample traceback, payload, and walkthrough guide.
+- pytest and pytest-cov as dev dependencies with 90% coverage baseline.
+
+### Changed
+- Refactored `cli.py` into a `cli/` package with separate modules for parser, session handlers, analysis handlers, and recorder handlers.
+- Refactored `session_store.py` by extracting cross-session intelligence into `intelligence.py` mixin and exception classes into `errors.py`.
+- Switched test runner from unittest discovery to pytest with coverage reporting.
+- Updated CI workflow to use pytest with coverage output.
+- Updated README with PyPI install instructions, coverage badge, and improved development section.
+- Expanded pyproject.toml with richer metadata, classifiers, and tool configuration.
+
 ## [0.2.2] - 2026-03-24
 
 ### Improved

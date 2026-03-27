@@ -1,0 +1,13 @@
+{
+  "event_id": "evt_retry_7f3a",
+  "type": "payment.created",
+  "idempotency_key": "idem_abc123",
+  "amount": 4999,
+  "currency": "usd",
+  "customer_id": "cus_012",
+  "retry_count": 2,
+  "headers": {
+    "X-Retry-For": "evt_original_8b1c",
+    "X-Idempotency-Key": "idem_abc123"
+  }
+}

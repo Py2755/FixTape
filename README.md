@@ -1,8 +1,10 @@
 # FixTape
 
+[![PyPI](https://img.shields.io/pypi/v/fixtape)](https://pypi.org/project/fixtape/)
 [![CI](https://github.com/Py2755/FixTape/actions/workflows/ci.yml/badge.svg)](https://github.com/Py2755/FixTape/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 [![Python 3.12+](https://img.shields.io/badge/python-3.12%2B-blue.svg)](pyproject.toml)
+[![Coverage](https://img.shields.io/badge/coverage-90%25-brightgreen.svg)](pyproject.toml)
 
 FixTape is a local-first CLI that turns debugging sessions into reusable engineering artifacts.
 
@@ -100,7 +102,23 @@ Current commands:
 
 ### 1. Install
 
-```powershell
+From PyPI (recommended):
+
+```bash
+pip install fixtape
+```
+
+Or with [pipx](https://pipx.pypa.io/) (isolated install, no conflicts):
+
+```bash
+pipx install fixtape
+```
+
+From source (for development):
+
+```bash
+git clone https://github.com/Py2755/FixTape.git
+cd FixTape
 python -m pip install -e .
 ```
 
@@ -408,10 +426,22 @@ Planned next:
 
 ## Development
 
+Install with dev dependencies:
+
+```bash
+python -m pip install -e ".[dev]"
+```
+
 Run tests:
 
-```powershell
-python -m unittest discover -s tests -v
+```bash
+python -m pytest
+```
+
+Run tests with coverage:
+
+```bash
+python -m pytest --cov --cov-report=term-missing
 ```
 
 Contributing guide:

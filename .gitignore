@@ -10,3 +10,5 @@ dist/
 .fixtape/
 node_modules/
 *.vsix
+.claude/
+coverage.xml
